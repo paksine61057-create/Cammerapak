@@ -4,25 +4,47 @@ import { CameraBubble } from './components/CameraBubble';
 import { ControlPanel } from './components/ControlPanel';
 import { CameraConfig, Position } from './types';
 
+const STORAGE_KEY = 'presenter_camera_config';
+
+const DEFAULT_CONFIG: CameraConfig = {
+  shape: 'circle',
+  size: 240,
+  mirrored: true,
+  backgroundUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=800',
+  blur: 0,
+  videoOpacity: 1.0, 
+  zoom: 1.2,
+  useChromaKey: false,
+  chromaKeyColor: { r: 255, g: 255, b: 255 },
+  threshold: 50,
+};
+
 const App: React.FC = () => {
-  const [cameraConfig, setCameraConfig] = useState<CameraConfig>({
-    shape: 'circle',
-    size: 240,
-    mirrored: true,
-    backgroundUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=800',
-    blur: 0,
-    videoOpacity: 1.0, 
-    zoom: 1.2,
-    useChromaKey: false,
-    chromaKeyColor: { r: 255, g: 255, b: 255 },
-    threshold: 50,
+  // Load initial config from localStorage or use default
+  const [cameraConfig, setCameraConfig] = useState<CameraConfig>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Note: Blob URLs won't persist after refresh, so we check if it's a blob
+        if (parsed.backgroundUrl?.startsWith('blob:')) {
+          return { ...parsed, backgroundUrl: DEFAULT_CONFIG.backgroundUrl };
+        }
+        return parsed;
+      } catch (e) {
+        return DEFAULT_CONFIG;
+      }
+    }
+    return DEFAULT_CONFIG;
   });
   
-  const configRef = useRef(cameraConfig);
+  // Save config when it changes
   useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cameraConfig));
     configRef.current = cameraConfig;
   }, [cameraConfig]);
 
+  const configRef = useRef(cameraConfig);
   const [isUIVisible, setIsUIVisible] = useState(true);
   const [pos, setPos] = useState<Position>({ x: 40, y: 150 });
   const [isPiPActive, setIsPiPActive] = useState(false);
@@ -36,7 +58,6 @@ const App: React.FC = () => {
   const bgImageRef = useRef<HTMLImageElement | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
-  // Initialize Processing Canvas
   useEffect(() => {
     const pc = document.createElement('canvas');
     pc.width = 512;
@@ -44,47 +65,61 @@ const App: React.FC = () => {
     processingCanvasRef.current = pc;
   }, []);
 
-  // Background Image Loader with smart CORS handling
+  // Optimized Background Image Loader
   useEffect(() => {
-    if (cameraConfig.backgroundUrl) {
-      const img = new Image();
-      // เฉพาะ URL ภายนอกเท่านั้นที่ต้องใช้ crossOrigin
-      if (cameraConfig.backgroundUrl.startsWith('http')) {
-        img.crossOrigin = "anonymous";
-      }
-      img.src = cameraConfig.backgroundUrl;
-      img.onload = () => { 
-        bgImageRef.current = img; 
-      };
-      img.onerror = () => { 
-        console.error("Failed to load background image:", cameraConfig.backgroundUrl);
-        bgImageRef.current = null; 
-      };
-    } else {
+    if (!cameraConfig.backgroundUrl) {
       bgImageRef.current = null;
+      return;
     }
+
+    const img = new Image();
+    // Use anonymous only for external http/https to avoid CORS issues with local blobs
+    if (cameraConfig.backgroundUrl.startsWith('http')) {
+      img.crossOrigin = "anonymous";
+    }
+
+    const handleLoad = () => {
+      bgImageRef.current = img;
+    };
+
+    const handleError = () => {
+      console.error("Failed to load image:", cameraConfig.backgroundUrl);
+      // If custom upload fails, fallback to a system default
+      if (cameraConfig.backgroundUrl?.startsWith('blob:')) {
+        setCameraConfig(prev => ({ ...prev, backgroundUrl: DEFAULT_CONFIG.backgroundUrl }));
+      }
+      bgImageRef.current = null;
+    };
+
+    img.onload = handleLoad;
+    img.onerror = handleError;
+    img.src = cameraConfig.backgroundUrl;
+
+    return () => {
+      img.onload = null;
+      img.onerror = null;
+    };
   }, [cameraConfig.backgroundUrl]);
 
-  // Helper function to draw image as "cover"
   const drawImageCover = (ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: number, h: number) => {
-    const imgRatio = img.width / img.height;
+    if (!img.complete || img.naturalWidth === 0) return;
+    const imgRatio = img.naturalWidth / img.naturalHeight;
     const canvasRatio = w / h;
     let sx, sy, sw, sh;
     if (imgRatio > canvasRatio) {
-      sh = img.height;
-      sw = img.height * canvasRatio;
-      sx = (img.width - sw) / 2;
+      sh = img.naturalHeight;
+      sw = img.naturalHeight * canvasRatio;
+      sx = (img.naturalWidth - sw) / 2;
       sy = 0;
     } else {
-      sw = img.width;
-      sh = img.width / canvasRatio;
+      sw = img.naturalWidth;
+      sh = img.naturalWidth / canvasRatio;
       sx = 0;
-      sy = (img.height - sh) / 2;
+      sy = (img.naturalHeight - sh) / 2;
     }
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
   };
 
-  // Camera Setup
   useEffect(() => {
     let stream: MediaStream | null = null;
     const startCamera = async () => {
@@ -110,7 +145,6 @@ const App: React.FC = () => {
     return () => stream?.getTracks().forEach(t => t.stop());
   }, []);
 
-  // Render Frame Logic (Called by Worker)
   const renderFrame = useCallback(() => {
     const canvas = canvasRef.current;
     const procCanvas = processingCanvasRef.current;
@@ -124,11 +158,9 @@ const App: React.FC = () => {
     const cfg = configRef.current;
     const size = canvas.width;
     
-    // 1. Clear with absolute black
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, size, size);
 
-    // 2. Set Clipping Mask
     ctx.save();
     if (cfg.shape === 'circle') { 
       ctx.beginPath(); 
@@ -150,12 +182,10 @@ const App: React.FC = () => {
       ctx.clip();
     }
 
-    // 3. Draw Background
     if (bgImageRef.current) {
       try {
         drawImageCover(ctx, bgImageRef.current, size, size);
       } catch (e) {
-        // Fallback if draw fails
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, size, size);
       }
@@ -164,7 +194,6 @@ const App: React.FC = () => {
       ctx.fillRect(0, 0, size, size);
     }
 
-    // 4. Process and Draw Video Content
     if (video.readyState >= 2) {
       pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
       pCtx.save();
@@ -208,7 +237,6 @@ const App: React.FC = () => {
     ctx.restore();
   }, []);
 
-  // Worker Timer
   useEffect(() => {
     const workerCode = `
       let interval;
@@ -333,7 +361,7 @@ const App: React.FC = () => {
         {isCameraLoading && (
           <div className="glass p-16 rounded-[4rem] text-center space-y-6">
             <div className="w-14 h-14 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mx-auto" />
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">กำลังโหลด...</p>
+            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">กำลังโหลดข้อมูล...</p>
           </div>
         )}
         {cameraError && (
