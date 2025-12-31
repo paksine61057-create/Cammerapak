@@ -24,7 +24,7 @@ const App: React.FC = () => {
   }, [cameraConfig]);
 
   const [isUIVisible, setIsUIVisible] = useState(true);
-  const [pos, setPos] = useState<Position>({ x: 40, y: 40 });
+  const [pos, setPos] = useState<Position>({ x: 40, y: 150 }); // Adjust initial position to not be at the very top
   const [isPiPActive, setIsPiPActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCameraLoading, setIsCameraLoading] = useState(true);
@@ -176,11 +176,9 @@ const App: React.FC = () => {
         await document.exitPictureInPicture();
         setIsPiPActive(false);
       } else if (pipVideoRef.current && canvasRef.current) {
-        // Essential for iPad: capture the stream at 30fps
         const stream = canvasRef.current.captureStream(30);
         pipVideoRef.current.srcObject = stream;
         
-        // Wait for metadata so PiP knows dimensions
         pipVideoRef.current.onloadedmetadata = async () => {
           try {
             await pipVideoRef.current?.requestPictureInPicture();
@@ -206,38 +204,66 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
-      {/* Hidden processing elements */}
       <video ref={videoRef} className="hidden" muted playsInline />
       <canvas ref={canvasRef} width={512} height={512} className="hidden" />
-      {/* PiP Video needs to be in DOM but invisible */}
       <video ref={pipVideoRef} style={{ display: 'none' }} muted playsInline autoPlay />
 
-      {/* Hero Header */}
-      <div className="absolute top-16 w-full text-center z-[20] px-6 pointer-events-none">
-        <h1 className="text-5xl font-black tracking-tighter text-white drop-shadow-2xl">
+      {/* Hero Header - Positioned at the very top */}
+      <div className="absolute top-6 w-full text-center z-[10] px-6 pointer-events-none">
+        <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
           iPad <span className="text-indigo-500">Presenter</span>
         </h1>
-        <div className="flex justify-center gap-2 mt-3 opacity-60">
-          <span className="text-[9px] px-2 py-1 bg-white/10 rounded-full border border-white/5 uppercase tracking-widest">Floating Mode</span>
-          <span className="text-[9px] px-2 py-1 bg-white/10 rounded-full border border-white/5 uppercase tracking-widest">Chroma Key</span>
-        </div>
+      </div>
+
+      {/* Toolbar / Settings - MOVED TO THE TOP (top-20) */}
+      <div className="absolute inset-x-0 top-20 z-[100] flex flex-col items-center pointer-events-none">
+        {isUIVisible ? (
+          <div className="pointer-events-auto w-full max-w-md px-4">
+            <ControlPanel 
+              config={cameraConfig}
+              onConfigChange={setCameraConfig}
+              onHideUI={() => setIsUIVisible(false)}
+            />
+          </div>
+        ) : (
+          <div className="flex gap-4 pointer-events-auto items-center">
+            <button 
+              onClick={() => setIsUIVisible(true)}
+              className="px-8 py-4 glass rounded-full text-xs font-black tracking-widest text-white/80 hover:text-white transition-all shadow-2xl border border-white/20 uppercase"
+            >
+              ตั้งค่ากล้อง
+            </button>
+            
+            {!cameraError && !isCameraLoading && (
+              <button 
+                onClick={togglePiP}
+                className={`flex items-center gap-3 px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${
+                  isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                </svg>
+                {isPiPActive ? 'ปิดหน้าต่างลอย' : 'เปิดหน้าต่างลอย'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Main Action Area */}
       <div className="absolute inset-0 flex flex-col items-center justify-center p-8">
         {!isPiPActive && !isCameraLoading && !cameraError && (
-          <div className="mb-80"> {/* Pushed up further from center */}
-             <CameraBubble 
-              canvasRef={canvasRef} 
-              config={cameraConfig} 
-              position={pos}
-              onPositionChange={setPos}
-            />
-          </div>
+          <CameraBubble 
+            canvasRef={canvasRef} 
+            config={cameraConfig} 
+            position={pos}
+            onPositionChange={setPos}
+          />
         )}
 
         {(isCameraLoading || cameraError) && (
-          <div className="glass p-10 rounded-[3rem] text-center space-y-6 max-w-sm border-white/10 shadow-2xl mb-32">
+          <div className="glass p-10 rounded-[3rem] text-center space-y-6 max-w-sm border-white/10 shadow-2xl">
             {isCameraLoading ? (
               <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto" />
             ) : (
@@ -253,42 +279,6 @@ const App: React.FC = () => {
             </div>
             {cameraError && (
               <button onClick={() => window.location.reload()} className="w-full py-4 bg-white text-black rounded-3xl font-black text-sm uppercase tracking-widest">ลองใหม่อีกครั้ง</button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Toolbar / Settings - MOVED HIGHER (pb-32) */}
-      <div className="absolute inset-x-0 bottom-0 z-[100] flex flex-col items-center pb-32 pointer-events-none">
-        {isUIVisible ? (
-          <div className="pointer-events-auto w-full max-w-md px-4">
-            <ControlPanel 
-              config={cameraConfig}
-              onConfigChange={setCameraConfig}
-              onHideUI={() => setIsUIVisible(false)}
-            />
-          </div>
-        ) : (
-          <div className="flex gap-4 pointer-events-auto items-center">
-            <button 
-              onClick={() => setIsUIVisible(true)}
-              className="px-10 py-5 glass rounded-full text-xs font-black tracking-widest text-white/80 hover:text-white transition-all shadow-2xl border border-white/20 uppercase"
-            >
-              ตั้งค่ากล้อง
-            </button>
-            
-            {!cameraError && !isCameraLoading && (
-              <button 
-                onClick={togglePiP}
-                className={`flex items-center gap-3 px-8 py-5 rounded-full font-black text-xs uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${
-                  isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'
-                }`}
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                </svg>
-                {isPiPActive ? 'ปิดหน้าต่างลอย' : 'เปิดหน้าต่างลอย (iPad Mode)'}
-              </button>
             )}
           </div>
         )}

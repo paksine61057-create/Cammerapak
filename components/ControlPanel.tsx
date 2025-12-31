@@ -28,9 +28,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   ];
 
   return (
-    /* Changed from bottom-8 to bottom-32 */
-    <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-[100] w-[92%] max-w-md animate-in slide-in-from-bottom-10">
-      <div className="glass p-7 rounded-[2.5rem] shadow-2xl space-y-6 border-white/5 overflow-y-auto max-h-[60vh] scrollbar-hide">
+    /* Changed from bottom-32 to top-4 (within the relative parent in App.tsx) */
+    <div className="z-[100] w-full animate-in slide-in-from-top-10">
+      <div className="glass p-7 rounded-[2.5rem] shadow-2xl space-y-6 border-white/5 overflow-y-auto max-h-[70vh] scrollbar-hide">
         
         {/* Chroma Key & Zoom Section */}
         <div className="bg-white/5 p-5 rounded-3xl space-y-5">
@@ -46,7 +46,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
           <div className="space-y-3">
             <div className="flex justify-between items-center text-[10px] font-black text-white/30 uppercase tracking-widest">
-              <span>Camera Zoom (Narrow Angle)</span>
+              <span>Camera Zoom</span>
               <span className="text-white/60">{config.zoom.toFixed(1)}x</span>
             </div>
             <input 
@@ -74,7 +74,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-[8px] font-bold text-white/30 uppercase">
-                  <span>Threshold</span>
+                  <span>Sensitivity</span>
                   <span>{config.threshold}</span>
                 </div>
                 <input 
