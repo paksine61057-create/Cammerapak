@@ -18,7 +18,6 @@ const App: React.FC = () => {
     threshold: 50,
   });
   
-  // Use a ref for the config to avoid restarting the render loop on every slider change
   const configRef = useRef(cameraConfig);
   useEffect(() => {
     configRef.current = cameraConfig;
@@ -36,14 +35,12 @@ const App: React.FC = () => {
   const pipVideoRef = useRef<HTMLVideoElement>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
 
-  // Initialize processing canvas only once
   useEffect(() => {
     processingCanvasRef.current = document.createElement('canvas');
     processingCanvasRef.current.width = 400;
     processingCanvasRef.current.height = 400;
   }, []);
 
-  // Background Image Loader
   useEffect(() => {
     if (cameraConfig.backgroundUrl) {
       const img = new Image();
@@ -59,7 +56,6 @@ const App: React.FC = () => {
     }
   }, [cameraConfig.backgroundUrl]);
 
-  // Camera Initialization
   useEffect(() => {
     let stream: MediaStream | null = null;
     
@@ -67,6 +63,10 @@ const App: React.FC = () => {
       setIsCameraLoading(true);
       setCameraError(null);
       try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("เบราว์เซอร์นี้ไม่รองรับการใช้งานกล้อง");
+        }
+
         stream = await navigator.mediaDevices.getUserMedia({ 
           video: { 
             facingMode: "user", 
@@ -78,15 +78,14 @@ const App: React.FC = () => {
         
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          // Wait for video metadata to be loaded to get correct dimensions
           videoRef.current.onloadedmetadata = () => {
             videoRef.current?.play().catch(e => console.error("Play error:", e));
             setIsCameraLoading(false);
           };
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Camera access error:", err);
-        setCameraError("ไม่สามารถเข้าถึงกล้องได้ กรุณาตรวจสอบการอนุญาตสิทธิ์");
+        setCameraError(err.message || "ไม่สามารถเข้าถึงกล้องได้ กรุณาตรวจสอบการอนุญาตสิทธิ์");
         setIsCameraLoading(false);
       }
     };
@@ -100,7 +99,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Master Render Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     const procCanvas = processingCanvasRef.current;
@@ -114,16 +112,9 @@ const App: React.FC = () => {
     let animationId: number;
 
     const render = () => {
-      // Check if video is actually providing data
-      if (video.readyState < 2) {
-        animationId = requestAnimationFrame(render);
-        return;
-      }
-
       const cfg = configRef.current;
       const size = canvas.width;
       
-      // 1. Draw Background
       ctx.save();
       if (cfg.shape === 'circle') {
         ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); ctx.clip();
@@ -135,61 +126,60 @@ const App: React.FC = () => {
       }
       ctx.restore();
 
-      // 2. Process Video (Zoom & Chroma Key)
-      pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
-      pCtx.save();
-      if (cfg.mirrored) {
-        pCtx.translate(procCanvas.width, 0); pCtx.scale(-1, 1);
-      }
-
-      const videoW = video.videoWidth;
-      const videoH = video.videoHeight;
-      const zoom = cfg.zoom;
-      
-      // Calculate crop to maintain square aspect ratio for bubble
-      const minDim = Math.min(videoW, videoH);
-      const sw = (minDim / zoom);
-      const sh = (minDim / zoom);
-      const sx = (videoW - sw) / 2;
-      const sy = (videoH - sh) / 2;
-
-      pCtx.drawImage(video, sx, sy, sw, sh, 0, 0, procCanvas.width, procCanvas.height);
-      
-      if (cfg.useChromaKey) {
-        const imageData = pCtx.getImageData(0, 0, procCanvas.width, procCanvas.height);
-        const data = imageData.data;
-        const target = cfg.chromaKeyColor;
-        const t = cfg.threshold;
-
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
-          const diff = Math.sqrt(Math.pow(r - target.r, 2) + Math.pow(g - target.g, 2) + Math.pow(b - target.b, 2));
-          if (diff < t) {
-            data[i + 3] = 0;
-          } else if (diff < t + 25) {
-            data[i + 3] = ((diff - t) / 25) * 255;
-          }
+      if (video.readyState >= 2) {
+        pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
+        pCtx.save();
+        if (cfg.mirrored) {
+          pCtx.translate(procCanvas.width, 0); pCtx.scale(-1, 1);
         }
-        pCtx.putImageData(imageData, 0, 0);
-      }
-      pCtx.restore();
 
-      // 3. Composite
-      ctx.save();
-      if (cfg.shape === 'circle') {
-        ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); ctx.clip();
+        const videoW = video.videoWidth;
+        const videoH = video.videoHeight;
+        const zoom = cfg.zoom;
+        
+        const minDim = Math.min(videoW, videoH);
+        const sw = (minDim / zoom);
+        const sh = (minDim / zoom);
+        const sx = (videoW - sw) / 2;
+        const sy = (videoH - sh) / 2;
+
+        pCtx.drawImage(video, sx, sy, sw, sh, 0, 0, procCanvas.width, procCanvas.height);
+        
+        if (cfg.useChromaKey) {
+          const imageData = pCtx.getImageData(0, 0, procCanvas.width, procCanvas.height);
+          const data = imageData.data;
+          const target = cfg.chromaKeyColor;
+          const t = cfg.threshold;
+
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+            const diff = Math.sqrt(Math.pow(r - target.r, 2) + Math.pow(g - target.g, 2) + Math.pow(b - target.b, 2));
+            if (diff < t) {
+              data[i + 3] = 0;
+            } else if (diff < t + 25) {
+              data[i + 3] = ((diff - t) / 25) * 255;
+            }
+          }
+          pCtx.putImageData(imageData, 0, 0);
+        }
+        pCtx.restore();
+
+        ctx.save();
+        if (cfg.shape === 'circle') {
+          ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); ctx.clip();
+        }
+        if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
+        ctx.globalAlpha = cfg.videoOpacity;
+        ctx.drawImage(procCanvas, 0, 0, size, size);
+        ctx.restore();
       }
-      if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
-      ctx.globalAlpha = cfg.videoOpacity;
-      ctx.drawImage(procCanvas, 0, 0, size, size);
-      ctx.restore();
 
       animationId = requestAnimationFrame(render);
     };
 
     render();
     return () => cancelAnimationFrame(animationId);
-  }, []); // Run effect once on mount, loop is managed internally
+  }, []);
 
   const togglePiP = async () => {
     try {
@@ -197,7 +187,6 @@ const App: React.FC = () => {
         await document.exitPictureInPicture();
         setIsPiPActive(false);
       } else if (pipVideoRef.current && canvasRef.current) {
-        // Prepare PiP stream right before activation
         const stream = canvasRef.current.captureStream(30);
         pipVideoRef.current.srcObject = stream;
         await pipVideoRef.current.requestPictureInPicture();
@@ -220,57 +209,45 @@ const App: React.FC = () => {
         <p className="text-slate-500 text-xs mt-1 uppercase tracking-[0.2em]">โหมดเจาะพื้นหลัง & ปรับมุมกล้อง</p>
       </div>
 
-      {/* Main Status UI */}
-      <div className="absolute inset-0 flex items-center justify-center p-6">
-        <div className="glass p-10 rounded-[3rem] max-w-sm w-full space-y-8 shadow-2xl border-white/5 text-center">
-          <div className="relative w-32 h-32 mx-auto">
-            {isCameraLoading ? (
-              <div className="w-full h-full border-4 border-white/5 border-t-indigo-500 rounded-full animate-spin" />
-            ) : (
-              <>
-                <div className={`absolute inset-0 ${cameraError ? 'bg-red-500/20' : 'bg-indigo-500/20'} blur-3xl rounded-full`} />
-                <div className={`relative bg-gradient-to-br ${cameraError ? 'from-red-600 to-rose-700' : 'from-indigo-600 to-violet-700'} w-full h-full rounded-[2.5rem] flex items-center justify-center shadow-lg border border-white/10`}>
+      {/* Main Status UI - แสดงเมื่อกล้องมีปัญหาหรือกำลังโหลด แต่ไม่บังปุ่ม Settings */}
+      {(isCameraLoading || cameraError) && (
+        <div className="absolute inset-0 flex items-center justify-center p-6 pointer-events-none">
+          <div className="glass p-10 rounded-[3rem] max-w-sm w-full space-y-8 shadow-2xl border-white/5 text-center pointer-events-auto">
+            <div className="relative w-32 h-32 mx-auto">
+              {isCameraLoading ? (
+                <div className="w-full h-full border-4 border-white/5 border-t-indigo-500 rounded-full animate-spin" />
+              ) : (
+                <div className={`relative bg-gradient-to-br from-red-600 to-rose-700 w-full h-full rounded-[2.5rem] flex items-center justify-center shadow-lg border border-white/10`}>
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
                 </div>
-              </>
+              )}
+            </div>
+            
+            <div className="space-y-3">
+              <h2 className="text-xl font-bold text-white">
+                {cameraError ? 'พบข้อขัดข้อง' : 'กำลังเตรียมความพร้อม...'}
+              </h2>
+              <p className="text-slate-400 text-sm px-4">
+                {cameraError || 'กรุณารอสักครู่ขณะแอปกำลังเริ่มต้นระบบ'}
+              </p>
+            </div>
+
+            {cameraError && (
+              <button
+                onClick={() => window.location.reload()}
+                className="w-full py-5 rounded-3xl font-black text-lg bg-white text-black hover:bg-slate-100 transition-all active:scale-95"
+              >
+                รีโหลดหน้าเว็บ
+              </button>
             )}
           </div>
-          
-          <div className="space-y-3">
-            <h2 className="text-xl font-bold text-white">
-              {cameraError ? 'พบข้อขัดข้อง' : isCameraLoading ? 'กำลังเปิดกล้อง...' : 'พร้อมเริ่มการสอน'}
-            </h2>
-            <p className="text-slate-400 text-sm px-4">
-              {cameraError || 'หากภาพไม่ปรากฏ กรุณาตรวจสอบว่าไม่มีแอปอื่นกำลังใช้งานกล้องอยู่'}
-            </p>
-          </div>
-
-          {!cameraError && !isCameraLoading && (
-            <button
-              onClick={togglePiP}
-              className={`w-full py-5 rounded-3xl font-black text-lg transition-all active:scale-95 shadow-xl ${
-                isPiPActive ? 'bg-rose-500 text-white' : 'bg-white text-black hover:bg-slate-100'
-              }`}
-            >
-              {isPiPActive ? 'ปิดหน้าต่างลอย' : 'เปิดหน้าต่างลอย (PiP)'}
-            </button>
-          )}
-
-          {cameraError && (
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full py-5 rounded-3xl font-black text-lg bg-white text-black hover:bg-slate-100 transition-all active:scale-95"
-            >
-              รีโหลดหน้าเว็บ
-            </button>
-          )}
         </div>
-      </div>
+      )}
 
       {/* Floating Overlay Preview */}
-      {!isPiPActive && !cameraError && !isCameraLoading && (
+      {!isPiPActive && !isCameraLoading && (
         <CameraBubble 
           canvasRef={canvasRef} 
           config={cameraConfig} 
@@ -279,21 +256,32 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Controls */}
-      {isUIVisible && !isCameraLoading && (
+      {/* Controls - แสดงเสมอให้ผู้ใช้กดได้ */}
+      {isUIVisible ? (
         <ControlPanel 
           config={cameraConfig}
           onConfigChange={setCameraConfig}
           onHideUI={() => setIsUIVisible(false)}
         />
-      )}
-
-      {!isUIVisible && !isCameraLoading && (
+      ) : (
         <button 
           onClick={() => setIsUIVisible(true)}
           className="absolute bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 glass rounded-full text-xs font-bold text-white/50 hover:text-white transition-all z-[110]"
         >
           เปิดการตั้งค่า
+        </button>
+      )}
+
+      {/* PiP Shortcut Button - ถ้ากล้องพร้อมแล้วแต่ปิด UI ไป */}
+      {!isUIVisible && !isPiPActive && !isCameraLoading && (
+        <button
+          onClick={togglePiP}
+          className="absolute top-8 right-8 w-12 h-12 glass rounded-2xl flex items-center justify-center text-white/70 hover:text-white transition-all z-[60]"
+          title="เปิดโหมดหน้าต่างลอย"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
         </button>
       )}
     </div>
