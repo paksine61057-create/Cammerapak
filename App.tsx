@@ -226,7 +226,7 @@ const App: React.FC = () => {
       {/* Main Action Area */}
       <div className="absolute inset-0 flex flex-col items-center justify-center p-8">
         {!isPiPActive && !isCameraLoading && !cameraError && (
-          <div className="mb-64">
+          <div className="mb-80"> {/* Pushed up further from center */}
              <CameraBubble 
               canvasRef={canvasRef} 
               config={cameraConfig} 
@@ -237,7 +237,7 @@ const App: React.FC = () => {
         )}
 
         {(isCameraLoading || cameraError) && (
-          <div className="glass p-10 rounded-[3rem] text-center space-y-6 max-w-sm border-white/10 shadow-2xl">
+          <div className="glass p-10 rounded-[3rem] text-center space-y-6 max-w-sm border-white/10 shadow-2xl mb-32">
             {isCameraLoading ? (
               <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto" />
             ) : (
@@ -258,8 +258,8 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* Toolbar / Settings */}
-      <div className="absolute inset-x-0 bottom-0 z-[100] flex flex-col items-center pb-12 pointer-events-none">
+      {/* Toolbar / Settings - MOVED HIGHER (pb-32) */}
+      <div className="absolute inset-x-0 bottom-0 z-[100] flex flex-col items-center pb-32 pointer-events-none">
         {isUIVisible ? (
           <div className="pointer-events-auto w-full max-w-md px-4">
             <ControlPanel 

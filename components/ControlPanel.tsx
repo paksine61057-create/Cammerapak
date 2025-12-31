@@ -28,8 +28,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   ];
 
   return (
-    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[100] w-[92%] max-w-md animate-in slide-in-from-bottom-10">
-      <div className="glass p-7 rounded-[2.5rem] shadow-2xl space-y-6 border-white/5 overflow-y-auto max-h-[70vh] scrollbar-hide">
+    /* Changed from bottom-8 to bottom-32 */
+    <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-[100] w-[92%] max-w-md animate-in slide-in-from-bottom-10">
+      <div className="glass p-7 rounded-[2.5rem] shadow-2xl space-y-6 border-white/5 overflow-y-auto max-h-[60vh] scrollbar-hide">
         
         {/* Chroma Key & Zoom Section */}
         <div className="bg-white/5 p-5 rounded-3xl space-y-5">
