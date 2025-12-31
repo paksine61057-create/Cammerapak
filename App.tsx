@@ -62,7 +62,7 @@ const App: React.FC = () => {
       setCameraError(null);
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error("iPad/Browser ของคุณไม่รองรับโหมดนี้");
+          throw new Error("iPad ของคุณไม่รองรับการเข้าถึงกล้องผ่านเบราว์เซอร์นี้");
         }
         stream = await navigator.mediaDevices.getUserMedia({ 
           video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
@@ -137,57 +137,54 @@ const App: React.FC = () => {
 
   const preparePiP = () => {
     const v = pipVideoRef.current;
-    const isCurrentlyPiP = document.pictureInPictureElement || (v as any)?.webkitPresentationMode === 'picture-in-picture';
-    
+    if (!v) return;
+
+    // Toggle PiP off if active
+    const isCurrentlyPiP = document.pictureInPictureElement || (v as any).webkitPresentationMode === 'picture-in-picture';
     if (isCurrentlyPiP) {
       if (document.exitPictureInPicture) {
         document.exitPictureInPicture();
-      } else if ((v as any)?.webkitSetPresentationMode) {
+      } else if ((v as any).webkitSetPresentationMode) {
         (v as any).webkitSetPresentationMode('inline');
       }
       setIsPiPActive(false);
       return;
     }
 
-    if (canvasRef.current && pipVideoRef.current) {
-      // สร้าง Stream ใหม่ทุกครั้งที่กด เพื่อให้ iPad ตื่นตัว
-      const stream = canvasRef.current.captureStream(30);
-      pipVideoRef.current.srcObject = stream;
+    if (canvasRef.current) {
       setIsPreparingPiP(true);
     }
   };
 
   const startPiP = async () => {
     const video = pipVideoRef.current;
-    if (!video) return;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
 
     try {
-      // Step 1: เริ่มเล่นวิดีโอ (สำคัญมากสำหรับ iPadOS)
-      await video.play();
+      // 1. สร้าง Stream และผูกกับ Video ทันทีที่กด
+      const stream = canvas.captureStream(30);
+      video.srcObject = stream;
       
-      // Step 2: รอให้วิดีโอ 'ตื่น' จริงๆ
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // 2. เริ่มเล่น และรอเล็กน้อยให้ Buffer พร้อม
+      await video.play();
+      await new Promise(r => setTimeout(r, 600));
 
-      // Step 3: ตรวจสอบความพร้อมของโหมดต่างๆ
+      // 3. เรียกใช้ API ตามลำดับความสำคัญสำหรับ iPad
       if (video.requestPictureInPicture) {
-        // มาตรฐานใหม่ (Safari 14+, Chrome)
         await video.requestPictureInPicture();
         setIsPiPActive(true);
-      } else if ((video as any).webkitSetPresentationMode) {
-        // มาตรฐานเก่าของ iPadOS
+      } else if ((video as any).webkitSupportsPresentationMode && (video as any).webkitSupportsPresentationMode('picture-in-picture')) {
         (video as any).webkitSetPresentationMode('picture-in-picture');
         setIsPiPActive(true);
       } else {
-        throw new Error("iPad ของคุณไม่รองรับโหมดนี้ใน Browser นี้");
+        throw new Error("iPad ของคุณต้องการ Safari เพื่อใช้งานโหมดนี้");
       }
 
       setIsPreparingPiP(false);
-      
-      // ส่งข้อความเตือนให้ผู้ใช้ปัดหน้าจอออก
-      console.log("PiP Activated successfully");
     } catch (e: any) {
-      console.error("PiP Start Error:", e);
-      alert("เกิดข้อผิดพลาด: " + (e.message || "กรุณาลองใหม่อีกครั้ง"));
+      console.error("PiP Activation Failed:", e);
+      alert("ไม่สามารถเปิดโหมดลอยได้: " + (e.message || "เบราว์เซอร์ของคุณบล็อกการทำงานนี้"));
       setIsPreparingPiP(false);
     }
   };
@@ -195,17 +192,14 @@ const App: React.FC = () => {
   useEffect(() => {
     const video = pipVideoRef.current;
     const handleExit = () => setIsPiPActive(false);
-    const handleEnter = () => setIsPiPActive(true);
-
-    video?.addEventListener('enterpictureinpicture', handleEnter);
+    
     video?.addEventListener('leavepictureinpicture', handleExit);
     video?.addEventListener('webkitpresentationmodechanged', () => {
-      const mode = (video as any).webkitPresentationMode;
-      setIsPiPActive(mode === 'picture-in-picture');
+      if ((video as any).webkitPresentationMode === 'inline') setIsPiPActive(false);
+      if ((video as any).webkitPresentationMode === 'picture-in-picture') setIsPiPActive(true);
     });
 
     return () => {
-      video?.removeEventListener('enterpictureinpicture', handleEnter);
       video?.removeEventListener('leavepictureinpicture', handleExit);
     };
   }, []);
@@ -215,10 +209,10 @@ const App: React.FC = () => {
       <video ref={videoRef} className="hidden" muted playsInline />
       <canvas ref={canvasRef} width={512} height={512} className="hidden" />
       
-      {/* วิดีโอต้นฉบับสำหรับ PiP ต้องมองเห็นได้เล็กน้อยเพื่อให้ OS ยอมรับ */}
+      {/* วิดีโอต้นฉบับสำหรับ PiP ต้องมีขนาดที่มองเห็นได้จริงเพื่อให้ iPad ยอมรับ */}
       <video 
         ref={pipVideoRef} 
-        className="fixed bottom-4 right-4 w-4 h-4 opacity-0 pointer-events-none z-[-1]" 
+        style={{ width: '100px', height: '100px', opacity: 0.01, pointerEvents: 'none', position: 'fixed', bottom: 0, right: 0, zIndex: -1 }}
         muted 
         playsInline 
         autoPlay
@@ -226,96 +220,63 @@ const App: React.FC = () => {
 
       {/* PiP Confirm Overlay */}
       {isPreparingPiP && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 backdrop-blur-xl animate-in fade-in duration-300">
-          <div className="text-center space-y-10 p-10 max-w-sm">
-            <div className="relative flex justify-center">
-              <div className="absolute inset-0 bg-indigo-500/40 blur-3xl rounded-full animate-pulse scale-150" />
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-2xl animate-in fade-in duration-300">
+          <div className="text-center space-y-12 p-8 max-w-sm">
+            <div className="relative">
+              <div className="absolute inset-0 bg-indigo-500/30 blur-[100px] rounded-full animate-pulse scale-150" />
               <button 
                 onClick={startPiP}
-                className="relative w-32 h-32 bg-white text-black rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-all group"
+                className="relative w-32 h-32 bg-white text-black rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-all"
               >
-                <svg className="w-14 h-14 ml-2 group-hover:text-indigo-600 transition-colors" fill="currentColor" viewBox="0 0 24 24">
+                <svg className="w-16 h-16 ml-2" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M8 5v14l11-7z" />
                 </svg>
               </button>
             </div>
             
             <div className="space-y-6">
-              <div className="space-y-2">
-                <h2 className="text-3xl font-black tracking-tight">กดเพื่อเริ่ม!</h2>
-                <p className="text-indigo-400 font-bold text-xs uppercase tracking-[0.2em]">iPad PiP Activation</p>
-              </div>
-
-              <div className="space-y-4 bg-white/5 p-6 rounded-[2rem] border border-white/10 text-left">
-                <div className="flex gap-4 items-start">
-                  <div className="w-6 h-6 rounded-full bg-indigo-500 flex-shrink-0 flex items-center justify-center text-[10px] font-bold">1</div>
-                  <p className="text-white/80 text-sm">แตะปุ่ม <span className="text-white font-bold">Play</span> ด้านบน</p>
-                </div>
-                <div className="flex gap-4 items-start">
-                  <div className="w-6 h-6 rounded-full bg-indigo-500 flex-shrink-0 flex items-center justify-center text-[10px] font-bold">2</div>
-                  <p className="text-white/80 text-sm"><span className="text-white font-bold">ปัดหน้าจอขึ้น</span> เพื่อกลับไปหน้าโฮม หรือสลับไปแอปอื่นทันที</p>
-                </div>
-                <div className="mt-2 p-3 bg-yellow-500/10 rounded-xl border border-yellow-500/20">
-                  <p className="text-[10px] text-yellow-500/80 leading-relaxed italic">
-                    *หากไม่มีอะไรเกิดขึ้น ให้ลองกดย้ำที่ปุ่ม Play อีกครั้ง หรือตรวจสอบว่า iPad ไม่ได้เปิดโหมดประหยัดพลังงาน
-                  </p>
+              <h2 className="text-3xl font-black tracking-tight">ยืนยันการเปิด</h2>
+              <div className="bg-white/5 border border-white/10 p-6 rounded-[2.5rem] text-left space-y-4">
+                <p className="text-white/70 text-sm leading-relaxed">
+                  1. แตะปุ่ม <span className="text-indigo-400 font-bold">Play</span> ด้านบน<br/>
+                  2. เมื่อหน้าต่างลอยปรากฏ ให้ <span className="text-white font-bold">ปัดแอปนี้ออก</span> เพื่อเริ่มการนำเสนอ
+                </p>
+                <div className="p-3 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 text-[10px] text-indigo-300 font-bold uppercase tracking-wider text-center">
+                  แนะนำให้ใช้บน Safari (iPad)
                 </div>
               </div>
             </div>
 
-            <button 
-              onClick={() => setIsPreparingPiP(false)}
-              className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] hover:text-white/50 transition-colors"
-            >
-              ยกเลิก
-            </button>
+            <button onClick={() => setIsPreparingPiP(false)} className="text-[10px] font-black text-white/30 uppercase tracking-[0.4em]">ยกเลิก</button>
           </div>
         </div>
       )}
 
-      {/* Hero Header */}
-      <div className="absolute top-6 w-full text-center z-[10] px-6 pointer-events-none">
-        <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
+      {/* UI Elements */}
+      <div className="absolute top-8 w-full text-center z-[10] px-6 pointer-events-none">
+        <h1 className="text-3xl font-black tracking-tighter text-white/90">
           iPad <span className="text-indigo-500">Presenter</span>
         </h1>
         {isPiPActive && (
-          <div className="mt-2 inline-flex flex-col items-center gap-2">
-            <div className="px-4 py-1.5 bg-green-500 text-black rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg shadow-green-500/20">
-              โหมดหน้าต่างลอยกำลังทำงาน
-            </div>
+          <div className="mt-3 inline-block px-4 py-1.5 bg-green-500 text-black text-[10px] font-black rounded-full uppercase tracking-widest shadow-xl">
+            Floating Mode Active
           </div>
         )}
       </div>
 
-      {/* Toolbar */}
-      <div className="absolute inset-x-0 top-20 z-[100] flex flex-col items-center pointer-events-none">
+      <div className="absolute inset-x-0 top-24 z-[100] flex flex-col items-center pointer-events-none">
         {isUIVisible ? (
           <div className="pointer-events-auto w-full max-w-md px-4">
-            <ControlPanel 
-              config={cameraConfig}
-              onConfigChange={setCameraConfig}
-              onHideUI={() => setIsUIVisible(false)}
-            />
+            <ControlPanel config={cameraConfig} onConfigChange={setCameraConfig} onHideUI={() => setIsUIVisible(false)} />
           </div>
         ) : (
           <div className="flex gap-4 pointer-events-auto items-center p-4">
-            <button 
-              onClick={() => setIsUIVisible(true)}
-              className="px-8 py-4 glass rounded-full text-xs font-black tracking-widest text-white/80 hover:text-white transition-all shadow-2xl border border-white/20 uppercase"
-            >
-              ตั้งค่า
-            </button>
-            
+            <button onClick={() => setIsUIVisible(true)} className="px-8 py-4 glass rounded-full text-[10px] font-black tracking-widest uppercase border border-white/10">ตั้งค่า</button>
             {!cameraError && !isCameraLoading && (
               <button 
                 onClick={preparePiP}
-                className={`flex items-center gap-3 px-8 py-4 rounded-full font-black text-xs uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${
-                  isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'
-                }`}
+                className={`flex items-center gap-3 px-8 py-4 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl transition-all ${isPiPActive ? 'bg-red-500' : 'bg-indigo-600'}`}
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                </svg>
                 {isPiPActive ? 'ปิดหน้าต่าง' : 'เปิดหน้าต่างลอย'}
               </button>
             )}
@@ -323,37 +284,25 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* Camera Preview */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center p-8 pointer-events-none">
+      <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none">
         <div className="pointer-events-auto">
           {!isCameraLoading && !cameraError && !isPreparingPiP && (
-            <CameraBubble 
-              canvasRef={canvasRef} 
-              config={cameraConfig} 
-              position={pos}
-              onPositionChange={setPos}
-            />
+            <CameraBubble canvasRef={canvasRef} config={cameraConfig} position={pos} onPositionChange={setPos} />
           )}
         </div>
+        
+        {isCameraLoading && (
+          <div className="glass p-12 rounded-[3rem] text-center space-y-4">
+            <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto" />
+            <p className="text-xs font-bold text-white/40 uppercase tracking-widest">Starting Camera...</p>
+          </div>
+        )}
 
-        {(isCameraLoading || cameraError) && (
-          <div className="glass p-10 rounded-[3rem] text-center space-y-6 max-w-sm border-white/10 shadow-2xl pointer-events-auto">
-            {isCameraLoading ? (
-              <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto" />
-            ) : (
-              <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto">
-                <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-            )}
-            <div>
-              <h2 className="text-xl font-bold mb-2">{isCameraLoading ? "กำลังเปิดกล้อง..." : "ผิดพลาด"}</h2>
-              <p className="text-sm text-white/50">{cameraError || "กรุณากด 'อนุญาต' เมื่อ iPad ถามสิทธิ์เข้าถึงกล้อง"}</p>
-            </div>
-            {cameraError && (
-              <button onClick={() => window.location.reload()} className="w-full py-4 bg-white text-black rounded-3xl font-black text-sm uppercase tracking-widest">เริ่มใหม่</button>
-            )}
+        {cameraError && (
+          <div className="glass p-10 rounded-[3rem] text-center space-y-6 max-w-xs border-red-500/20">
+            <div className="text-red-500 text-4xl">⚠️</div>
+            <p className="text-sm font-bold">{cameraError}</p>
+            <button onClick={() => window.location.reload()} className="w-full py-4 bg-white text-black rounded-2xl font-black text-xs">TRY AGAIN</button>
           </div>
         )}
       </div>
