@@ -36,7 +36,6 @@ const App: React.FC = () => {
   const bgImageRef = useRef<HTMLImageElement | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
-  // Initialize Processing Canvas
   useEffect(() => {
     const pc = document.createElement('canvas');
     pc.width = 512;
@@ -44,7 +43,6 @@ const App: React.FC = () => {
     processingCanvasRef.current = pc;
   }, []);
 
-  // Background Image Loader
   useEffect(() => {
     if (cameraConfig.backgroundUrl) {
       const img = new Image();
@@ -57,7 +55,6 @@ const App: React.FC = () => {
     }
   }, [cameraConfig.backgroundUrl]);
 
-  // Camera Setup
   useEffect(() => {
     let stream: MediaStream | null = null;
     const startCamera = async () => {
@@ -83,7 +80,6 @@ const App: React.FC = () => {
     return () => stream?.getTracks().forEach(t => t.stop());
   }, []);
 
-  // Render Logic (Extracted to be called by Worker)
   const renderFrame = useCallback(() => {
     const canvas = canvasRef.current;
     const procCanvas = processingCanvasRef.current;
@@ -97,11 +93,27 @@ const App: React.FC = () => {
     const cfg = configRef.current;
     const size = canvas.width;
     
-    // Clear and draw background
-    ctx.fillStyle = '#020617';
+    // เคลียร์พื้นหลังให้เป็นสีดำสนิทเพื่อใช้ใน PiP
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, size, size);
-    if (bgImageRef.current) ctx.drawImage(bgImageRef.current, 0, 0, size, size);
 
+    // เริ่มการวาดภายใต้ Masking (วงกลม หรือ สี่เหลี่ยม)
+    ctx.save();
+    if (cfg.shape === 'circle') { 
+      ctx.beginPath(); 
+      ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); 
+      ctx.clip(); 
+    }
+
+    // 1. วาดพื้นหลัง (ภายใน Mask)
+    if (bgImageRef.current) {
+      ctx.drawImage(bgImageRef.current, 0, 0, size, size);
+    } else {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, size, size);
+    }
+
+    // 2. ประมวลผลวิดีโอ (Mirror, Zoom, Chroma Key)
     if (video.readyState >= 2) {
       pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
       pCtx.save();
@@ -134,22 +146,16 @@ const App: React.FC = () => {
       }
       pCtx.restore();
 
-      ctx.save();
-      if (cfg.shape === 'circle') { 
-        ctx.beginPath(); 
-        ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); 
-        ctx.clip(); 
-      }
+      // 3. วาดตัวคนลงใน Canvas หลัก
       if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
       ctx.globalAlpha = cfg.videoOpacity;
       ctx.drawImage(procCanvas, 0, 0, size, size);
-      ctx.restore();
     }
+    
+    ctx.restore(); // สิ้นสุด Masking
   }, []);
 
-  // Worker Timer for Background Rendering
   useEffect(() => {
-    // สร้าง Worker ผ่าน Blob เพื่อให้ไม่ต้องมีไฟล์แยก
     const workerCode = `
       let interval;
       self.onmessage = function(e) {
@@ -162,14 +168,9 @@ const App: React.FC = () => {
     `;
     const blob = new Blob([workerCode], { type: 'application/javascript' });
     const worker = new Worker(URL.createObjectURL(blob));
-    
-    worker.onmessage = () => {
-      renderFrame();
-    };
-    
+    worker.onmessage = () => renderFrame();
     worker.postMessage('start');
     workerRef.current = worker;
-
     return () => {
       worker.postMessage('stop');
       worker.terminate();
@@ -191,26 +192,20 @@ const App: React.FC = () => {
           (video as any).webkitSetPresentationMode('inline');
         }
         setIsPiPActive(false);
-      } catch (e) {
-        console.error("Exit PiP error", e);
-      }
+      } catch (e) { console.error("Exit PiP error", e); }
       return;
     }
 
     try {
-      // ดึง Stream และสั่งเล่น
       const stream = canvas.captureStream(30);
       video.srcObject = stream;
       await video.play();
-      
-      // หน่วงเวลาให้ iPadOS ยอมรับ Metadata
       await new Promise(resolve => {
         const check = () => (video.readyState >= 2 ? resolve(null) : setTimeout(check, 100));
         check();
       });
       await new Promise(r => setTimeout(r, 600));
 
-      // เรียกโหมดลอยตัว
       if ((video as any).webkitSetPresentationMode) {
         (video as any).webkitSetPresentationMode('picture-in-picture');
       } else if (video.requestPictureInPicture) {
@@ -244,37 +239,8 @@ const App: React.FC = () => {
   return (
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
       <video ref={videoRef} style={{ display: 'none' }} muted playsInline />
-      
-      {/* Canvas สำหรับประมวลผล (ต้องไม่ display:none) */}
-      <canvas 
-        ref={canvasRef} 
-        width={512} 
-        height={512} 
-        style={{ 
-          position: 'fixed', 
-          top: '-1000px', 
-          left: '-1000px', 
-          opacity: 0.1,
-          pointerEvents: 'none' 
-        }} 
-      />
-      
-      {/* Video สำหรับ PiP (ต้องไม่ display:none และมีขนาดจริง) */}
-      <video 
-        ref={pipVideoRef} 
-        style={{ 
-          position: 'fixed', 
-          bottom: '10px', 
-          right: '10px', 
-          width: '320px', 
-          height: '240px', 
-          pointerEvents: 'none',
-          opacity: 0.001,
-          zIndex: -1
-        }}
-        muted 
-        playsInline 
-      />
+      <canvas ref={canvasRef} width={512} height={512} style={{ position: 'fixed', top: '-1000px', left: '-1000px', opacity: 0.1, pointerEvents: 'none' }} />
+      <video ref={pipVideoRef} style={{ position: 'fixed', bottom: '10px', right: '10px', width: '320px', height: '240px', pointerEvents: 'none', opacity: 0.001, zIndex: -1 }} muted playsInline />
 
       <div className="absolute top-8 w-full text-center z-[10] px-6 pointer-events-none">
         <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
@@ -296,20 +262,11 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div className="flex gap-4 pointer-events-auto items-center p-6">
-            <button 
-              onClick={() => setIsUIVisible(true)} 
-              className="px-10 py-5 glass rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20 hover:bg-white/10 transition-all shadow-2xl"
-            >
+            <button onClick={() => setIsUIVisible(true)} className="px-10 py-5 glass rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20 hover:bg-white/10 transition-all shadow-2xl">
               ตั้งค่ากล้อง
             </button>
-            
             {!cameraError && !isCameraLoading && (
-              <button 
-                onClick={handlePiPToggle}
-                className={`flex items-center gap-3 px-10 py-5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${
-                  isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'
-                }`}
-              >
+              <button onClick={handlePiPToggle} className={`flex items-center gap-3 px-10 py-5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'}`}>
                 {isPiPActive ? 'ปิดหน้าต่างลอย' : 'เปิดหน้าต่างลอย'}
               </button>
             )}
@@ -327,7 +284,7 @@ const App: React.FC = () => {
         {isCameraLoading && (
           <div className="glass p-16 rounded-[4rem] text-center space-y-6">
             <div className="w-14 h-14 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mx-auto" />
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">กำลังเริ่มการทำงาน...</p>
+            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">กำลังโหลด...</p>
           </div>
         )}
 

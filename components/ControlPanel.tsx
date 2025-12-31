@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { CameraConfig } from '../types';
 
 interface ControlPanelProps {
@@ -13,6 +13,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onConfigChange,
   onHideUI
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const backgrounds = [
     { name: 'None', url: null },
     { name: 'Modern', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=400' },
@@ -27,114 +29,146 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     { name: 'Gray', r: 128, g: 128, b: 128 },
   ];
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      onConfigChange({ ...config, backgroundUrl: url });
+    }
+  };
+
   return (
-    /* Changed from bottom-32 to top-4 (within the relative parent in App.tsx) */
     <div className="z-[100] w-full animate-in slide-in-from-top-10">
-      <div className="glass p-7 rounded-[2.5rem] shadow-2xl space-y-6 border-white/5 overflow-y-auto max-h-[70vh] scrollbar-hide">
+      <div className="glass p-7 rounded-[2.5rem] shadow-2xl space-y-6 border-white/5 overflow-y-auto max-h-[75vh] scrollbar-hide">
         
+        {/* Shape & Size Section */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-white/30 uppercase tracking-widest">ขนาดกรอบ (Size)</label>
+            <input 
+              type="range" min="120" max="450" value={config.size}
+              onChange={(e) => onConfigChange({ ...config, size: parseInt(e.target.value) })}
+              className="w-full h-1.5 bg-white/10 rounded-lg appearance-none accent-indigo-500"
+            />
+          </div>
+          <div className="flex bg-white/5 p-1 rounded-2xl self-end h-10">
+            <button 
+              onClick={() => onConfigChange({ ...config, shape: 'circle' })}
+              className={`flex-1 text-[9px] font-black rounded-xl transition-all ${config.shape === 'circle' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/40'}`}
+            >
+              CIRCLE
+            </button>
+            <button 
+              onClick={() => onConfigChange({ ...config, shape: 'rect' })}
+              className={`flex-1 text-[9px] font-black rounded-xl transition-all ${config.shape === 'rect' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/40'}`}
+            >
+              SQUARE
+            </button>
+          </div>
+        </div>
+
+        {/* Background Section */}
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <label className="text-[10px] font-black text-white/30 uppercase tracking-widest block">ภาพพื้นหลัง (Background)</label>
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="text-[9px] font-black text-indigo-400 uppercase tracking-wider hover:text-indigo-300 transition-colors"
+            >
+              + อัปโหลดภาพเอง
+            </button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileUpload} 
+              accept="image/*" 
+              className="hidden" 
+            />
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+            {backgrounds.map((bg) => (
+              <button
+                key={bg.name}
+                onClick={() => onConfigChange({ ...config, backgroundUrl: bg.url })}
+                className={`group relative flex-shrink-0 w-16 h-16 rounded-2xl bg-white/5 overflow-hidden border-2 transition-all ${
+                  config.backgroundUrl === bg.url ? 'border-indigo-500 scale-105 shadow-[0_0_20px_rgba(99,102,241,0.3)]' : 'border-transparent opacity-60'
+                }`}
+              >
+                {bg.url ? (
+                  <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[8px] font-bold text-white/40 italic">None</div>
+                )}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <span className="text-[8px] font-black">{bg.name}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Chroma Key & Zoom Section */}
-        <div className="bg-white/5 p-5 rounded-3xl space-y-5">
+        <div className="bg-white/5 p-5 rounded-[2rem] space-y-5 border border-white/5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black text-white/60 uppercase tracking-widest">Remove Background</span>
+            <div className="space-y-1">
+              <span className="text-[10px] font-black text-white/80 uppercase tracking-widest block">Chroma Key</span>
+              <span className="text-[8px] text-white/30 font-bold uppercase block">ตัดพื้นหลังคนออก</span>
+            </div>
             <button 
               onClick={() => onConfigChange({ ...config, useChromaKey: !config.useChromaKey })}
-              className={`w-12 h-6 rounded-full transition-all relative ${config.useChromaKey ? 'bg-blue-500' : 'bg-white/10'}`}
+              className={`w-14 h-7 rounded-full transition-all relative ${config.useChromaKey ? 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]' : 'bg-white/10'}`}
             >
-              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${config.useChromaKey ? 'right-1' : 'left-1'}`} />
+              <div className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all shadow-md ${config.useChromaKey ? 'right-1' : 'left-1'}`} />
             </button>
           </div>
 
           <div className="space-y-3">
             <div className="flex justify-between items-center text-[10px] font-black text-white/30 uppercase tracking-widest">
-              <span>Camera Zoom</span>
-              <span className="text-white/60">{config.zoom.toFixed(1)}x</span>
+              <span>ขยายภาพ (Zoom)</span>
+              <span className="text-indigo-400 font-black">{config.zoom.toFixed(1)}x</span>
             </div>
             <input 
               type="range" min="1.0" max="2.5" step="0.1" value={config.zoom}
               onChange={(e) => onConfigChange({ ...config, zoom: parseFloat(e.target.value) })}
-              className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-400"
+              className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
           </div>
 
           {config.useChromaKey && (
-            <div className="space-y-4 pt-2 border-t border-white/5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="space-y-4 pt-4 border-t border-white/5 animate-in fade-in zoom-in-95 duration-300">
               <div className="flex gap-2">
                 {chromaPresets.map(color => (
                   <button
                     key={color.name}
                     onClick={() => onConfigChange({ ...config, chromaKeyColor: { r: color.r, g: color.g, b: color.b } })}
-                    className={`flex-1 py-2 text-[8px] font-bold rounded-xl border-2 transition-all ${
+                    className={`flex-1 py-2 text-[8px] font-black rounded-xl border-2 transition-all ${
                       config.chromaKeyColor.r === color.r && config.chromaKeyColor.g === color.g ? 'border-white bg-white/20' : 'border-transparent bg-white/5'
                     }`}
-                    style={{ color: `rgb(${color.r},${color.g},${color.b})` }}
                   >
-                    {color.name}
+                    <span style={{ color: `rgb(${color.r},${color.g},${color.b})` }}>●</span> {color.name}
                   </button>
                 ))}
               </div>
               <div className="space-y-2">
-                <div className="flex justify-between text-[8px] font-bold text-white/30 uppercase">
-                  <span>Sensitivity</span>
-                  <span>{config.threshold}</span>
+                <div className="flex justify-between text-[8px] font-black text-white/30 uppercase tracking-widest">
+                  <span>ความแม่นยำ (Threshold)</span>
+                  <span className="text-white/60">{config.threshold}</span>
                 </div>
                 <input 
                   type="range" min="10" max="150" value={config.threshold}
                   onChange={(e) => onConfigChange({ ...config, threshold: parseInt(e.target.value) })}
-                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                 />
               </div>
             </div>
           )}
         </div>
 
-        {/* Basic Size & Shape */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-[8px] font-black text-white/30 uppercase tracking-widest">Bubble Size</label>
-            <input 
-              type="range" min="120" max="450" value={config.size}
-              onChange={(e) => onConfigChange({ ...config, size: parseInt(e.target.value) })}
-              className="w-full h-1.5 bg-white/10 rounded-lg appearance-none accent-white"
-            />
-          </div>
-          <div className="flex bg-white/5 p-1 rounded-2xl self-end h-10">
-            <button 
-              onClick={() => onConfigChange({ ...config, shape: 'circle' })}
-              className={`flex-1 text-[9px] font-black rounded-xl transition-all ${config.shape === 'circle' ? 'bg-white text-black' : 'text-white/40'}`}
-            >
-              CIRCLE
-            </button>
-            <button 
-              onClick={() => onConfigChange({ ...config, shape: 'rect' })}
-              className={`flex-1 text-[9px] font-black rounded-xl transition-all ${config.shape === 'rect' ? 'bg-white text-black' : 'text-white/40'}`}
-            >
-              RECT
-            </button>
-          </div>
-        </div>
-
-        {/* Virtual Backgrounds */}
-        <div className="space-y-3">
-          <label className="text-[10px] font-black text-white/30 uppercase tracking-widest block">Virtual Stage</label>
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {backgrounds.map((bg) => (
-              <button
-                key={bg.name}
-                onClick={() => onConfigChange({ ...config, backgroundUrl: bg.url })}
-                style={{ backgroundImage: bg.url ? `url(${bg.url})` : 'none' }}
-                className={`flex-shrink-0 w-12 h-12 rounded-2xl bg-white/5 bg-cover bg-center border-2 transition-all ${
-                  config.backgroundUrl === bg.url ? 'border-indigo-500 scale-110 shadow-lg' : 'border-transparent'
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-
         <button
           onClick={onHideUI}
-          className="w-full py-4 bg-white/5 hover:bg-white/10 text-white rounded-2xl text-[10px] font-black transition-all border border-white/5 uppercase tracking-[0.2em]"
+          className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-[10px] font-black transition-all shadow-xl uppercase tracking-[0.2em]"
         >
-          Close Settings
+          ตกลงและบันทึก
         </button>
       </div>
     </div>
