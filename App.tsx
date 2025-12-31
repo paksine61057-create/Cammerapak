@@ -144,7 +144,7 @@ const App: React.FC = () => {
     if (canvasRef.current && pipVideoRef.current) {
       const stream = canvasRef.current.captureStream(30);
       pipVideoRef.current.srcObject = stream;
-      setIsPreparingPiP(true); // Show the "Play Button" Overlay
+      setIsPreparingPiP(true);
     }
   };
 
@@ -171,9 +171,16 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
+      {/* Hidden processing elements - pipVideoRef must be visible but hidden from user */}
       <video ref={videoRef} className="hidden" muted playsInline />
       <canvas ref={canvasRef} width={512} height={512} className="hidden" />
-      <video ref={pipVideoRef} style={{ display: 'none' }} muted playsInline />
+      <video 
+        ref={pipVideoRef} 
+        className="absolute bottom-0 right-0 w-1 h-1 opacity-0 pointer-events-none" 
+        muted 
+        playsInline 
+        autoPlay
+      />
 
       {/* PiP Confirm Overlay (FOR IPAD) */}
       {isPreparingPiP && (
@@ -209,6 +216,12 @@ const App: React.FC = () => {
         <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
           iPad <span className="text-indigo-500">Presenter</span>
         </h1>
+        {isPiPActive && (
+          <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-[10px] font-bold uppercase tracking-widest border border-green-500/20">
+            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+            โหมดหน้าต่างลอยทำงานอยู่
+          </div>
+        )}
       </div>
 
       {/* Toolbar / Settings */}
@@ -249,7 +262,8 @@ const App: React.FC = () => {
 
       {/* Main Action Area */}
       <div className="absolute inset-0 flex flex-col items-center justify-center p-8">
-        {!isPiPActive && !isCameraLoading && !cameraError && !isPreparingPiP && (
+        {/* กล้อง Bubble จะยังอยู่แม้เข้าโหมด PiP แล้ว เพื่อป้องกันผู้ใช้สับสน */}
+        {!isCameraLoading && !cameraError && !isPreparingPiP && (
           <CameraBubble 
             canvasRef={canvasRef} 
             config={cameraConfig} 
