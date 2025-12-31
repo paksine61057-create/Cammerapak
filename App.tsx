@@ -136,11 +136,18 @@ const App: React.FC = () => {
   }, []);
 
   const preparePiP = () => {
-    if (document.pictureInPictureElement) {
-      document.exitPictureInPicture();
+    // If already in PiP, close it
+    const v = pipVideoRef.current;
+    if (document.pictureInPictureElement || (v as any)?.webkitPresentationMode === 'picture-in-picture') {
+      if (document.exitPictureInPicture) {
+        document.exitPictureInPicture();
+      } else if ((v as any)?.webkitSetPresentationMode) {
+        (v as any).webkitSetPresentationMode('inline');
+      }
       setIsPiPActive(false);
       return;
     }
+
     if (canvasRef.current && pipVideoRef.current) {
       const stream = canvasRef.current.captureStream(30);
       pipVideoRef.current.srcObject = stream;
@@ -149,16 +156,31 @@ const App: React.FC = () => {
   };
 
   const startPiP = async () => {
+    const video = pipVideoRef.current;
+    if (!video) return;
+
     try {
-      if (pipVideoRef.current) {
-        await pipVideoRef.current.play();
-        await pipVideoRef.current.requestPictureInPicture();
-        setIsPiPActive(true);
-        setIsPreparingPiP(false);
+      // Step 1: Start playing the video stream
+      await video.play();
+      
+      // Step 2: Small delay for iPad OS to register the video activity
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Step 3: Enter PiP mode
+      // iPad uses webkitSetPresentationMode for older/specific versions, while newer use requestPictureInPicture
+      if (video.requestPictureInPicture) {
+        await video.requestPictureInPicture();
+      } else if ((video as any).webkitSetPresentationMode) {
+        (video as any).webkitSetPresentationMode('picture-in-picture');
+      } else {
+        throw new Error("Browser นี้ไม่รองรับโหมดหน้าต่างลอย");
       }
+
+      setIsPiPActive(true);
+      setIsPreparingPiP(false);
     } catch (e) {
       console.error("PiP Start Error:", e);
-      alert("กรุณาลองกดปุ่ม Play อีกครั้ง");
+      alert("ไม่สามารถเปิดโหมดลอยตัวได้: " + e);
     }
   };
 
@@ -166,23 +188,32 @@ const App: React.FC = () => {
     const handleExitPiP = () => setIsPiPActive(false);
     const video = pipVideoRef.current;
     video?.addEventListener('leavepictureinpicture', handleExitPiP);
-    return () => video?.removeEventListener('leavepictureinpicture', handleExitPiP);
+    // Add webkit specific listener for iPad
+    video?.addEventListener('webkitpresentationmodechanged', () => {
+      if ((video as any).webkitPresentationMode === 'inline') {
+        setIsPiPActive(false);
+      }
+    });
+    return () => {
+      video?.removeEventListener('leavepictureinpicture', handleExitPiP);
+    };
   }, []);
 
   return (
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
-      {/* Hidden processing elements - pipVideoRef must be visible but hidden from user */}
       <video ref={videoRef} className="hidden" muted playsInline />
       <canvas ref={canvasRef} width={512} height={512} className="hidden" />
+      
+      {/* pipVideoRef must be semi-visible during transition on some iPad versions */}
       <video 
         ref={pipVideoRef} 
-        className="absolute bottom-0 right-0 w-1 h-1 opacity-0 pointer-events-none" 
+        className="fixed bottom-0 right-0 w-16 h-16 opacity-0.01 pointer-events-none z-[-1]" 
         muted 
         playsInline 
         autoPlay
       />
 
-      {/* PiP Confirm Overlay (FOR IPAD) */}
+      {/* PiP Confirm Overlay */}
       {isPreparingPiP && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
           <div className="text-center space-y-8 p-10 max-w-sm">
@@ -197,9 +228,14 @@ const App: React.FC = () => {
                 </svg>
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-4">
               <h2 className="text-2xl font-black tracking-tight">แตะเพื่อเริ่มโหมดลอยตัว</h2>
-              <p className="text-white/50 text-sm leading-relaxed">iPad ต้องการให้คุณกดยืนยันหนึ่งครั้งเพื่ออนุญาตให้หน้าต่างวิดีโอลอยได้</p>
+              <div className="space-y-2 bg-white/5 p-4 rounded-2xl border border-white/10">
+                <p className="text-indigo-300 text-xs font-bold uppercase tracking-widest">คำแนะนำสำหรับ iPad</p>
+                <p className="text-white/60 text-sm leading-relaxed">
+                  เมื่อกดแล้ว ให้ลอง <span className="text-white font-bold">สลับแอป</span> หรือ <span className="text-white font-bold">ปัดขึ้นไปที่หน้าจอโฮม</span> หน้าต่างลอยจะปรากฏขึ้นทันที
+                </p>
+              </div>
             </div>
             <button 
               onClick={() => setIsPreparingPiP(false)}
@@ -217,9 +253,12 @@ const App: React.FC = () => {
           iPad <span className="text-indigo-500">Presenter</span>
         </h1>
         {isPiPActive && (
-          <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-[10px] font-bold uppercase tracking-widest border border-green-500/20">
-            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-            โหมดหน้าต่างลอยทำงานอยู่
+          <div className="mt-2 inline-flex flex-col items-center gap-2">
+            <div className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-[10px] font-bold uppercase tracking-widest border border-green-500/20">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse inline-block mr-2" />
+              หน้าต่างลอยเปิดอยู่
+            </div>
+            <p className="text-[9px] text-white/30 uppercase tracking-widest">ลองสลับไปแอปอื่นเพื่อเริ่มนำเสนอ</p>
           </div>
         )}
       </div>
@@ -262,7 +301,6 @@ const App: React.FC = () => {
 
       {/* Main Action Area */}
       <div className="absolute inset-0 flex flex-col items-center justify-center p-8">
-        {/* กล้อง Bubble จะยังอยู่แม้เข้าโหมด PiP แล้ว เพื่อป้องกันผู้ใช้สับสน */}
         {!isCameraLoading && !cameraError && !isPreparingPiP && (
           <CameraBubble 
             canvasRef={canvasRef} 
