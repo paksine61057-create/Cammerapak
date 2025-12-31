@@ -94,19 +94,35 @@ const App: React.FC = () => {
     const render = () => {
       const cfg = configRef.current;
       const size = canvas.width;
+      
+      // ล้าง Canvas หลัก
       ctx.fillStyle = '#020617';
       ctx.fillRect(0, 0, size, size);
-      if (bgImageRef.current) ctx.drawImage(bgImageRef.current, 0, 0, size, size);
+      
+      // วาดพื้นหลังเสมือน (ถ้ามี)
+      if (bgImageRef.current) {
+        ctx.drawImage(bgImageRef.current, 0, 0, size, size);
+      }
+
       if (video.readyState >= 2) {
         pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
         pCtx.save();
-        if (cfg.mirrored) { pCtx.translate(procCanvas.width, 0); pCtx.scale(-1, 1); }
+        
+        // จัดการ Mirror และ Zoom บน Processing Canvas
+        if (cfg.mirrored) { 
+          pCtx.translate(procCanvas.width, 0); 
+          pCtx.scale(-1, 1); 
+        }
+        
         const zoom = cfg.zoom;
         const sw = video.videoWidth / zoom;
         const sh = video.videoHeight / zoom;
         const sx = (video.videoWidth - sw) / 2;
         const sy = (video.videoHeight - sh) / 2;
+        
         pCtx.drawImage(video, sx, sy, sw, sh, 0, 0, procCanvas.width, procCanvas.height);
+        
+        // จัดการ Chroma Key (ตัดสีพื้นหลัง)
         if (cfg.useChromaKey) {
           const imageData = pCtx.getImageData(0, 0, procCanvas.width, procCanvas.height);
           const data = imageData.data;
@@ -121,8 +137,14 @@ const App: React.FC = () => {
           pCtx.putImageData(imageData, 0, 0);
         }
         pCtx.restore();
+
+        // นำภาพจาก Processing Canvas มาวาดลง Canvas หลัก (ใส่หน้ากากวงกลมและ Blur)
         ctx.save();
-        if (cfg.shape === 'circle') { ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); ctx.clip(); }
+        if (cfg.shape === 'circle') { 
+          ctx.beginPath(); 
+          ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); 
+          ctx.clip(); 
+        }
         if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
         ctx.globalAlpha = cfg.videoOpacity;
         ctx.drawImage(procCanvas, 0, 0, size, size);
@@ -139,7 +161,6 @@ const App: React.FC = () => {
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
-    // ตรวจสอบว่ากำลังเปิด PiP อยู่หรือไม่
     const isCurrentlyPiP = document.pictureInPictureElement || (video as any).webkitPresentationMode === 'picture-in-picture';
 
     if (isCurrentlyPiP) {
@@ -156,24 +177,24 @@ const App: React.FC = () => {
       return;
     }
 
-    // พยายามเข้าโหมด PiP
     try {
-      // 1. ดึง Stream จาก Canvas (ต้องทำภายใน Event Click ของผู้ใช้เท่านั้น Safari ถึงจะยอม)
+      // 1. ดึง Stream จาก Canvas (ต้องทำใน Click handler)
+      // ใช้ความเฟรมเรทที่เสถียรสำหรับ iPad (30fps)
       const stream = canvas.captureStream(30);
       video.srcObject = stream;
       
-      // 2. สั่งเล่นวิดีโอต้นทาง
+      // 2. สั่งเล่นวิดีโอ (จำเป็นมากเพื่อให้ Safari ยอมรับการทำ PiP)
       await video.play();
       
-      // 3. รอให้ Buffer และ Metadata พร้อม (สำคัญมากสำหรับ Safari บน iPad)
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // 3. รอให้ Stream อุ่นเครื่อง
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-      // 4. เรียกใช้ API ตามลำดับความเสถียรของ iPadOS
+      // 4. เรียกใช้ API
       if ((video as any).webkitSetPresentationMode) {
-        // วิธีนี้เสถียรที่สุดสำหรับ Safari บน iPad
+        // เฉพาะทางสำหรับ iPad Safari
         (video as any).webkitSetPresentationMode('picture-in-picture');
       } else if (video.requestPictureInPicture) {
-        // มาตรฐานทั่วไป
+        // มาตรฐานใหม่
         await video.requestPictureInPicture();
       } else {
         throw new Error("iPad ของคุณไม่รองรับโหมดนี้ในเบราว์เซอร์นี้ กรุณาใช้ Safari");
@@ -211,40 +232,54 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
-      <video ref={videoRef} className="hidden" muted playsInline />
-      <canvas ref={canvasRef} width={512} height={512} className="hidden" />
+      {/* ซ่อน Video หลัก แต่ยังให้ทำงานในเบื้องหลัง */}
+      <video ref={videoRef} style={{ display: 'none' }} muted playsInline />
       
-      {/* วิดีโอต้นทางสำหรับ PiP ต้องอยู่ในหน้าจอและมีขนาดจริง เพื่อให้ iPad ยอมรับ */}
-      <video 
-        ref={pipVideoRef} 
+      {/* สำคัญ: Canvas ต้องไม่ display: none ไม่งั้น iPad จะหยุดวาดภาพ */}
+      {/* ใช้การย้ายออกนอกหน้าจอแทน */}
+      <canvas 
+        ref={canvasRef} 
+        width={512} 
+        height={512} 
         style={{ 
           position: 'fixed', 
           top: '-1000px', 
           left: '-1000px', 
-          width: '320px', 
-          height: '240px', 
+          pointerEvents: 'none' 
+        }} 
+      />
+      
+      {/* วิดีโอต้นทางสำหรับ PiP (ซ่อนแต่ให้เบราว์เซอร์มองเห็นว่ามีตัวตน) */}
+      <video 
+        ref={pipVideoRef} 
+        style={{ 
+          position: 'fixed', 
+          top: '0', 
+          left: '0', 
+          width: '1px', 
+          height: '1px', 
           pointerEvents: 'none',
-          opacity: 0.1 
+          opacity: 0.01 
         }}
         muted 
         playsInline 
       />
 
-      {/* Header */}
+      {/* UI ส่วนหัว */}
       <div className="absolute top-8 w-full text-center z-[10] px-6 pointer-events-none">
         <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
-          iPad <span className="text-indigo-500 font-extrabold italic">Camera</span>
+          iPad <span className="text-indigo-500 font-extrabold italic">Presenter</span>
         </h1>
         {isPiPActive && (
           <div className="mt-4 animate-bounce">
             <span className="px-6 py-2 bg-indigo-600 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl">
-              หน้าต่างลอยเปิดแล้ว - ปัดหน้าจอขึ้นได้เลย!
+              หน้าต่างลอยเปิดแล้ว - สลับแอปได้เลย!
             </span>
           </div>
         )}
       </div>
 
-      {/* Settings / Actions */}
+      {/* แผงควบคุม */}
       <div className="absolute inset-x-0 top-24 z-[100] flex flex-col items-center pointer-events-none">
         {isUIVisible ? (
           <div className="pointer-events-auto w-full max-w-md px-4">
@@ -276,7 +311,7 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* Preview Area */}
+      {/* พื้นที่แสดงผลพรีวิวในแอป */}
       <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none">
         <div className="pointer-events-auto">
           {!isCameraLoading && !cameraError && (
@@ -296,25 +331,16 @@ const App: React.FC = () => {
             <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto">
               <span className="text-4xl">⚠️</span>
             </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-black uppercase tracking-tight">ไม่สามารถใช้กล้องได้</h3>
-              <p className="text-sm text-white/50 leading-relaxed">{cameraError}</p>
-            </div>
-            <button 
-              onClick={() => window.location.reload()} 
-              className="w-full py-5 bg-white text-black rounded-3xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-200 transition-colors"
-            >
-              โหลดหน้าใหม่
-            </button>
+            <p className="text-sm font-bold text-red-400">{cameraError}</p>
+            <button onClick={() => window.location.reload()} className="w-full py-5 bg-white text-black rounded-3xl font-black text-[10px] uppercase tracking-widest">ลองใหม่อีกครั้ง</button>
           </div>
         )}
       </div>
 
-      {/* Instruction Toast */}
       {!isUIVisible && !isPiPActive && (
-        <div className="absolute bottom-12 w-full text-center pointer-events-none animate-bounce">
-          <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.5em]">
-            ลากวงกลมเพื่อย้าย • กดปุ่มเพื่อลอยหน้าต่าง
+        <div className="absolute bottom-12 w-full text-center pointer-events-none">
+          <p className="text-[10px] font-black text-white/10 uppercase tracking-[0.5em]">
+            Presenter Overlay Mode
           </p>
         </div>
       )}
