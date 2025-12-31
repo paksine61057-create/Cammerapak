@@ -24,8 +24,9 @@ const App: React.FC = () => {
   }, [cameraConfig]);
 
   const [isUIVisible, setIsUIVisible] = useState(true);
-  const [pos, setPos] = useState<Position>({ x: 40, y: 150 }); // Adjust initial position to not be at the very top
+  const [pos, setPos] = useState<Position>({ x: 40, y: 150 });
   const [isPiPActive, setIsPiPActive] = useState(false);
+  const [isPreparingPiP, setIsPreparingPiP] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCameraLoading, setIsCameraLoading] = useState(true);
 
@@ -35,7 +36,6 @@ const App: React.FC = () => {
   const pipVideoRef = useRef<HTMLVideoElement>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
 
-  // Initialize processing canvas
   useEffect(() => {
     const pc = document.createElement('canvas');
     pc.width = 512;
@@ -43,7 +43,6 @@ const App: React.FC = () => {
     processingCanvasRef.current = pc;
   }, []);
 
-  // Background Loader
   useEffect(() => {
     if (cameraConfig.backgroundUrl) {
       const img = new Image();
@@ -56,10 +55,8 @@ const App: React.FC = () => {
     }
   }, [cameraConfig.backgroundUrl]);
 
-  // Camera Setup
   useEffect(() => {
     let stream: MediaStream | null = null;
-    
     const startCamera = async () => {
       setIsCameraLoading(true);
       setCameraError(null);
@@ -67,15 +64,9 @@ const App: React.FC = () => {
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error("iPad/Browser ของคุณไม่รองรับโหมดนี้");
         }
-
         stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            facingMode: "user", 
-            width: { ideal: 1280 }, 
-            height: { ideal: 720 } 
-          }
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
         });
-        
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.onloadedmetadata = () => {
@@ -88,58 +79,40 @@ const App: React.FC = () => {
         setIsCameraLoading(false);
       }
     };
-
     startCamera();
     return () => stream?.getTracks().forEach(t => t.stop());
   }, []);
 
-  // Main Render Loop for Custom Effects
   useEffect(() => {
     const canvas = canvasRef.current;
     const procCanvas = processingCanvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video || !procCanvas) return;
-
     const ctx = canvas.getContext('2d', { alpha: false });
     const pCtx = procCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx || !pCtx) return;
-
     let animationId: number;
-
     const render = () => {
       const cfg = configRef.current;
       const size = canvas.width;
-      
-      // Draw Background
       ctx.fillStyle = '#020617';
       ctx.fillRect(0, 0, size, size);
-
-      if (bgImageRef.current) {
-        ctx.drawImage(bgImageRef.current, 0, 0, size, size);
-      }
-
+      if (bgImageRef.current) ctx.drawImage(bgImageRef.current, 0, 0, size, size);
       if (video.readyState >= 2) {
         pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
         pCtx.save();
-        if (cfg.mirrored) {
-          pCtx.translate(procCanvas.width, 0);
-          pCtx.scale(-1, 1);
-        }
-
+        if (cfg.mirrored) { pCtx.translate(procCanvas.width, 0); pCtx.scale(-1, 1); }
         const zoom = cfg.zoom;
         const sw = video.videoWidth / zoom;
         const sh = video.videoHeight / zoom;
         const sx = (video.videoWidth - sw) / 2;
         const sy = (video.videoHeight - sh) / 2;
-
         pCtx.drawImage(video, sx, sy, sw, sh, 0, 0, procCanvas.width, procCanvas.height);
-        
         if (cfg.useChromaKey) {
           const imageData = pCtx.getImageData(0, 0, procCanvas.width, procCanvas.height);
           const data = imageData.data;
           const { r: tr, g: tg, b: tb } = cfg.chromaKeyColor;
           const threshold = cfg.threshold;
-
           for (let i = 0; i < data.length; i += 4) {
             const r = data[i], g = data[i+1], b = data[i+2];
             const diff = Math.sqrt((r-tr)**2 + (g-tg)**2 + (b-tb)**2);
@@ -149,52 +122,46 @@ const App: React.FC = () => {
           pCtx.putImageData(imageData, 0, 0);
         }
         pCtx.restore();
-
         ctx.save();
-        if (cfg.shape === 'circle') {
-          ctx.beginPath();
-          ctx.arc(size/2, size/2, size/2, 0, Math.PI*2);
-          ctx.clip();
-        }
+        if (cfg.shape === 'circle') { ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); ctx.clip(); }
         if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
         ctx.globalAlpha = cfg.videoOpacity;
         ctx.drawImage(procCanvas, 0, 0, size, size);
         ctx.restore();
       }
-
       animationId = requestAnimationFrame(render);
     };
-
     render();
     return () => cancelAnimationFrame(animationId);
   }, []);
 
-  // PiP Activation Logic
-  const togglePiP = async () => {
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-        setIsPiPActive(false);
-      } else if (pipVideoRef.current && canvasRef.current) {
-        const stream = canvasRef.current.captureStream(30);
-        pipVideoRef.current.srcObject = stream;
-        
-        pipVideoRef.current.onloadedmetadata = async () => {
-          try {
-            await pipVideoRef.current?.requestPictureInPicture();
-            setIsPiPActive(true);
-          } catch (e) {
-            alert("iPad ของคุณต้องการให้กดปุ่ม 'Play' บนหน้าต่างวิดีโอก่อนเข้าโหมด PiP");
-          }
-        };
-      }
-    } catch (e) {
-      console.error("PiP Failed:", e);
-      alert("ไม่สามารถเปิดโหมดลอยตัวได้ กรุณาลองใหม่อีกครั้ง");
+  const preparePiP = () => {
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture();
+      setIsPiPActive(false);
+      return;
+    }
+    if (canvasRef.current && pipVideoRef.current) {
+      const stream = canvasRef.current.captureStream(30);
+      pipVideoRef.current.srcObject = stream;
+      setIsPreparingPiP(true); // Show the "Play Button" Overlay
     }
   };
 
-  // Auto-exit PiP state listener
+  const startPiP = async () => {
+    try {
+      if (pipVideoRef.current) {
+        await pipVideoRef.current.play();
+        await pipVideoRef.current.requestPictureInPicture();
+        setIsPiPActive(true);
+        setIsPreparingPiP(false);
+      }
+    } catch (e) {
+      console.error("PiP Start Error:", e);
+      alert("กรุณาลองกดปุ่ม Play อีกครั้ง");
+    }
+  };
+
   useEffect(() => {
     const handleExitPiP = () => setIsPiPActive(false);
     const video = pipVideoRef.current;
@@ -206,16 +173,45 @@ const App: React.FC = () => {
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
       <video ref={videoRef} className="hidden" muted playsInline />
       <canvas ref={canvasRef} width={512} height={512} className="hidden" />
-      <video ref={pipVideoRef} style={{ display: 'none' }} muted playsInline autoPlay />
+      <video ref={pipVideoRef} style={{ display: 'none' }} muted playsInline />
 
-      {/* Hero Header - Positioned at the very top */}
+      {/* PiP Confirm Overlay (FOR IPAD) */}
+      {isPreparingPiP && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="text-center space-y-8 p-10 max-w-sm">
+            <div className="relative">
+              <div className="absolute -inset-4 bg-indigo-500/30 blur-2xl rounded-full animate-pulse" />
+              <button 
+                onClick={startPiP}
+                className="relative w-24 h-24 bg-white text-black rounded-full flex items-center justify-center shadow-2xl hover:scale-110 active:scale-95 transition-all"
+              >
+                <svg className="w-10 h-10 ml-1" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black tracking-tight">แตะเพื่อเริ่มโหมดลอยตัว</h2>
+              <p className="text-white/50 text-sm leading-relaxed">iPad ต้องการให้คุณกดยืนยันหนึ่งครั้งเพื่ออนุญาตให้หน้าต่างวิดีโอลอยได้</p>
+            </div>
+            <button 
+              onClick={() => setIsPreparingPiP(false)}
+              className="text-xs font-bold text-white/30 uppercase tracking-widest pt-4"
+            >
+              ยกเลิก
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Hero Header */}
       <div className="absolute top-6 w-full text-center z-[10] px-6 pointer-events-none">
         <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
           iPad <span className="text-indigo-500">Presenter</span>
         </h1>
       </div>
 
-      {/* Toolbar / Settings - MOVED TO THE TOP (top-20) */}
+      {/* Toolbar / Settings */}
       <div className="absolute inset-x-0 top-20 z-[100] flex flex-col items-center pointer-events-none">
         {isUIVisible ? (
           <div className="pointer-events-auto w-full max-w-md px-4">
@@ -236,7 +232,7 @@ const App: React.FC = () => {
             
             {!cameraError && !isCameraLoading && (
               <button 
-                onClick={togglePiP}
+                onClick={preparePiP}
                 className={`flex items-center gap-3 px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${
                   isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'
                 }`}
@@ -253,7 +249,7 @@ const App: React.FC = () => {
 
       {/* Main Action Area */}
       <div className="absolute inset-0 flex flex-col items-center justify-center p-8">
-        {!isPiPActive && !isCameraLoading && !cameraError && (
+        {!isPiPActive && !isCameraLoading && !cameraError && !isPreparingPiP && (
           <CameraBubble 
             canvasRef={canvasRef} 
             config={cameraConfig} 
