@@ -44,17 +44,20 @@ const App: React.FC = () => {
     processingCanvasRef.current = pc;
   }, []);
 
-  // Background Image Loader with local URL cleanup
+  // Background Image Loader with smart CORS handling
   useEffect(() => {
     if (cameraConfig.backgroundUrl) {
       const img = new Image();
-      img.crossOrigin = "anonymous";
+      // เฉพาะ URL ภายนอกเท่านั้นที่ต้องใช้ crossOrigin
+      if (cameraConfig.backgroundUrl.startsWith('http')) {
+        img.crossOrigin = "anonymous";
+      }
       img.src = cameraConfig.backgroundUrl;
       img.onload = () => { 
         bgImageRef.current = img; 
       };
       img.onerror = () => { 
-        console.error("Failed to load background image");
+        console.error("Failed to load background image:", cameraConfig.backgroundUrl);
         bgImageRef.current = null; 
       };
     } else {
@@ -121,18 +124,17 @@ const App: React.FC = () => {
     const cfg = configRef.current;
     const size = canvas.width;
     
-    // 1. Clear with absolute black (best for PiP blending)
+    // 1. Clear with absolute black
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, size, size);
 
-    // 2. Set Clipping Mask based on selected shape
+    // 2. Set Clipping Mask
     ctx.save();
     if (cfg.shape === 'circle') { 
       ctx.beginPath(); 
       ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); 
       ctx.clip(); 
     } else {
-      // Rounded rect for Square mode to look modern
       const radius = 60;
       ctx.beginPath();
       ctx.moveTo(radius, 0);
@@ -150,7 +152,13 @@ const App: React.FC = () => {
 
     // 3. Draw Background
     if (bgImageRef.current) {
-      drawImageCover(ctx, bgImageRef.current, size, size);
+      try {
+        drawImageCover(ctx, bgImageRef.current, size, size);
+      } catch (e) {
+        // Fallback if draw fails
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, size, size);
+      }
     } else {
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(0, 0, size, size);
@@ -161,13 +169,11 @@ const App: React.FC = () => {
       pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
       pCtx.save();
       
-      // Mirroring
       if (cfg.mirrored) { 
         pCtx.translate(procCanvas.width, 0); 
         pCtx.scale(-1, 1); 
       }
       
-      // Zoom logic
       const zoom = cfg.zoom;
       const sw = video.videoWidth / zoom;
       const sh = video.videoHeight / zoom;
@@ -176,7 +182,6 @@ const App: React.FC = () => {
       
       pCtx.drawImage(video, sx, sy, sw, sh, 0, 0, procCanvas.width, procCanvas.height);
       
-      // Chroma Keying
       if (cfg.useChromaKey) {
         const imageData = pCtx.getImageData(0, 0, procCanvas.width, procCanvas.height);
         const data = imageData.data;
@@ -184,7 +189,6 @@ const App: React.FC = () => {
         const threshold = cfg.threshold;
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i], g = data[i+1], b = data[i+2];
-          // Euclidean distance for color matching
           const diff = Math.sqrt((r-tr)**2 + (g-tg)**2 + (b-tb)**2);
           if (diff < threshold) {
             data[i+3] = 0;
@@ -196,16 +200,15 @@ const App: React.FC = () => {
       }
       pCtx.restore();
 
-      // Final composite onto main canvas
       if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
       ctx.globalAlpha = cfg.videoOpacity;
       ctx.drawImage(procCanvas, 0, 0, size, size);
     }
     
-    ctx.restore(); // End of Shape Mask
+    ctx.restore();
   }, []);
 
-  // Worker Timer to keep PiP active in background
+  // Worker Timer
   useEffect(() => {
     const workerCode = `
       let interval;
@@ -219,25 +222,20 @@ const App: React.FC = () => {
     `;
     const blob = new Blob([workerCode], { type: 'application/javascript' });
     const worker = new Worker(URL.createObjectURL(blob));
-    
     worker.onmessage = () => renderFrame();
     worker.postMessage('start');
     workerRef.current = worker;
-
     return () => {
       worker.postMessage('stop');
       worker.terminate();
     };
   }, [renderFrame]);
 
-  // Picture in Picture Toggle
   const handlePiPToggle = async () => {
     const video = pipVideoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
-
     const isCurrentlyPiP = document.pictureInPictureElement || (video as any).webkitPresentationMode === 'picture-in-picture';
-
     if (isCurrentlyPiP) {
       try {
         if (document.exitPictureInPicture) {
@@ -249,18 +247,15 @@ const App: React.FC = () => {
       } catch (e) { console.error("Exit PiP error", e); }
       return;
     }
-
     try {
       const stream = canvas.captureStream(30);
       video.srcObject = stream;
       await video.play();
-      
       await new Promise(resolve => {
         const check = () => (video.readyState >= 2 ? resolve(null) : setTimeout(check, 100));
         check();
       });
       await new Promise(r => setTimeout(r, 600));
-
       if ((video as any).webkitSetPresentationMode) {
         (video as any).webkitSetPresentationMode('picture-in-picture');
       } else if (video.requestPictureInPicture) {
@@ -294,37 +289,8 @@ const App: React.FC = () => {
   return (
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
       <video ref={videoRef} style={{ display: 'none' }} muted playsInline />
-      
-      {/* Hidden processing canvas */}
-      <canvas 
-        ref={canvasRef} 
-        width={512} 
-        height={512} 
-        style={{ 
-          position: 'fixed', 
-          top: '-1000px', 
-          left: '-1000px', 
-          opacity: 0.1,
-          pointerEvents: 'none' 
-        }} 
-      />
-      
-      {/* Invisible video for PiP trigger */}
-      <video 
-        ref={pipVideoRef} 
-        style={{ 
-          position: 'fixed', 
-          bottom: '10px', 
-          right: '10px', 
-          width: '320px', 
-          height: '240px', 
-          pointerEvents: 'none',
-          opacity: 0.001,
-          zIndex: -1
-        }}
-        muted 
-        playsInline 
-      />
+      <canvas ref={canvasRef} width={512} height={512} style={{ position: 'fixed', top: '-1000px', left: '-1000px', opacity: 0.1, pointerEvents: 'none' }} />
+      <video ref={pipVideoRef} style={{ position: 'fixed', bottom: '10px', right: '10px', width: '320px', height: '240px', pointerEvents: 'none', opacity: 0.001, zIndex: -1 }} muted playsInline />
 
       <div className="absolute top-8 w-full text-center z-[10] px-6 pointer-events-none">
         <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
@@ -346,20 +312,11 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div className="flex gap-4 pointer-events-auto items-center p-6">
-            <button 
-              onClick={() => setIsUIVisible(true)} 
-              className="px-10 py-5 glass rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20 hover:bg-white/10 transition-all shadow-2xl"
-            >
+            <button onClick={() => setIsUIVisible(true)} className="px-10 py-5 glass rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20 hover:bg-white/10 transition-all shadow-2xl">
               ตั้งค่ากล้อง
             </button>
-            
             {!cameraError && !isCameraLoading && (
-              <button 
-                onClick={handlePiPToggle}
-                className={`flex items-center gap-3 px-10 py-5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${
-                  isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'
-                }`}
-              >
+              <button onClick={handlePiPToggle} className={`flex items-center gap-3 px-10 py-5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'}`}>
                 {isPiPActive ? 'ปิดหน้าต่างลอย' : 'เปิดหน้าต่างลอย'}
               </button>
             )}
@@ -373,14 +330,12 @@ const App: React.FC = () => {
             <CameraBubble canvasRef={canvasRef} config={cameraConfig} position={pos} onPositionChange={setPos} />
           )}
         </div>
-        
         {isCameraLoading && (
           <div className="glass p-16 rounded-[4rem] text-center space-y-6">
             <div className="w-14 h-14 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mx-auto" />
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">กำลังโหลดข้อมูล...</p>
+            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">กำลังโหลด...</p>
           </div>
         )}
-
         {cameraError && (
           <div className="glass p-12 rounded-[3.5rem] text-center space-y-8 max-w-xs border-red-500/20 shadow-2xl">
             <p className="text-sm font-bold text-red-400">{cameraError}</p>

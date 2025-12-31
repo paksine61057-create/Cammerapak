@@ -15,18 +15,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const backgrounds = [
+  const presets = [
     { name: 'None', url: null },
     { name: 'Modern', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=400' },
     { name: 'Studio', url: 'https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&q=80&w=400' },
     { name: 'Abstract', url: 'https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&q=80&w=400' },
-  ];
-
-  const chromaPresets = [
-    { name: 'Green', r: 0, g: 255, b: 0 },
-    { name: 'White', r: 255, g: 255, b: 255 },
-    { name: 'Blue', r: 0, g: 0, b: 255 },
-    { name: 'Gray', r: 128, g: 128, b: 128 },
   ];
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,11 +30,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     }
   };
 
+  // ตรวจสอบว่า URL ปัจจุบันคือ preset หรือไม่
+  const isCustomUrl = config.backgroundUrl && !presets.some(p => p.url === config.backgroundUrl);
+
   return (
     <div className="z-[100] w-full animate-in slide-in-from-top-10">
       <div className="glass p-7 rounded-[2.5rem] shadow-2xl space-y-6 border-white/5 overflow-y-auto max-h-[75vh] scrollbar-hide">
         
-        {/* Shape & Size Section */}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <label className="text-[10px] font-black text-white/30 uppercase tracking-widest">ขนาดกรอบ (Size)</label>
@@ -67,7 +62,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        {/* Background Section */}
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <label className="text-[10px] font-black text-white/30 uppercase tracking-widest block">ภาพพื้นหลัง (Background)</label>
@@ -77,16 +71,24 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             >
               + อัปโหลดภาพเอง
             </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileUpload} 
-              accept="image/*" 
-              className="hidden" 
-            />
+            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" className="hidden" />
           </div>
+          
           <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-            {backgrounds.map((bg) => (
+            {/* รายการภาพที่ผู้ใช้อัปโหลดเอง (ถ้ามี) */}
+            {isCustomUrl && (
+              <button
+                onClick={() => onConfigChange({ ...config, backgroundUrl: config.backgroundUrl })}
+                className="group relative flex-shrink-0 w-16 h-16 rounded-2xl bg-white/5 overflow-hidden border-2 border-indigo-500 scale-105 shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all"
+              >
+                <img src={config.backgroundUrl!} alt="Custom" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <span className="text-[8px] font-black text-white uppercase">Custom</span>
+                </div>
+              </button>
+            )}
+
+            {presets.map((bg) => (
               <button
                 key={bg.name}
                 onClick={() => onConfigChange({ ...config, backgroundUrl: bg.url })}
@@ -107,7 +109,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        {/* Chroma Key & Zoom Section */}
         <div className="bg-white/5 p-5 rounded-[2rem] space-y-5 border border-white/5">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
@@ -133,35 +134,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
           </div>
-
-          {config.useChromaKey && (
-            <div className="space-y-4 pt-4 border-t border-white/5 animate-in fade-in zoom-in-95 duration-300">
-              <div className="flex gap-2">
-                {chromaPresets.map(color => (
-                  <button
-                    key={color.name}
-                    onClick={() => onConfigChange({ ...config, chromaKeyColor: { r: color.r, g: color.g, b: color.b } })}
-                    className={`flex-1 py-2 text-[8px] font-black rounded-xl border-2 transition-all ${
-                      config.chromaKeyColor.r === color.r && config.chromaKeyColor.g === color.g ? 'border-white bg-white/20' : 'border-transparent bg-white/5'
-                    }`}
-                  >
-                    <span style={{ color: `rgb(${color.r},${color.g},${color.b})` }}>●</span> {color.name}
-                  </button>
-                ))}
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-[8px] font-black text-white/30 uppercase tracking-widest">
-                  <span>ความแม่นยำ (Threshold)</span>
-                  <span className="text-white/60">{config.threshold}</span>
-                </div>
-                <input 
-                  type="range" min="10" max="150" value={config.threshold}
-                  onChange={(e) => onConfigChange({ ...config, threshold: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                />
-              </div>
-            </div>
-          )}
         </div>
 
         <button
