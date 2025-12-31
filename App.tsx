@@ -95,11 +95,9 @@ const App: React.FC = () => {
       const cfg = configRef.current;
       const size = canvas.width;
       
-      // ล้าง Canvas หลัก
       ctx.fillStyle = '#020617';
       ctx.fillRect(0, 0, size, size);
       
-      // วาดพื้นหลังเสมือน (ถ้ามี)
       if (bgImageRef.current) {
         ctx.drawImage(bgImageRef.current, 0, 0, size, size);
       }
@@ -108,7 +106,6 @@ const App: React.FC = () => {
         pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
         pCtx.save();
         
-        // จัดการ Mirror และ Zoom บน Processing Canvas
         if (cfg.mirrored) { 
           pCtx.translate(procCanvas.width, 0); 
           pCtx.scale(-1, 1); 
@@ -122,7 +119,6 @@ const App: React.FC = () => {
         
         pCtx.drawImage(video, sx, sy, sw, sh, 0, 0, procCanvas.width, procCanvas.height);
         
-        // จัดการ Chroma Key (ตัดสีพื้นหลัง)
         if (cfg.useChromaKey) {
           const imageData = pCtx.getImageData(0, 0, procCanvas.width, procCanvas.height);
           const data = imageData.data;
@@ -138,7 +134,6 @@ const App: React.FC = () => {
         }
         pCtx.restore();
 
-        // นำภาพจาก Processing Canvas มาวาดลง Canvas หลัก (ใส่หน้ากากวงกลมและ Blur)
         ctx.save();
         if (cfg.shape === 'circle') { 
           ctx.beginPath(); 
@@ -178,32 +173,38 @@ const App: React.FC = () => {
     }
 
     try {
-      // 1. ดึง Stream จาก Canvas (ต้องทำใน Click handler)
-      // ใช้ความเฟรมเรทที่เสถียรสำหรับ iPad (30fps)
+      // 1. สร้าง Stream
       const stream = canvas.captureStream(30);
       video.srcObject = stream;
       
-      // 2. สั่งเล่นวิดีโอ (จำเป็นมากเพื่อให้ Safari ยอมรับการทำ PiP)
+      // 2. สั่งวิดีโอเล่น (Safari iPad บังคับให้เล่นก่อนเข้า PiP)
       await video.play();
       
-      // 3. รอให้ Stream อุ่นเครื่อง
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // 3. รอให้ Metadata และภาพแรกวาดเสร็จ
+      await new Promise(resolve => {
+        const check = () => {
+          if (video.readyState >= 2) resolve(null);
+          else setTimeout(check, 100);
+        };
+        check();
+      });
 
-      // 4. เรียกใช้ API
+      // 4. รอเพิ่มอีกนิดเพื่อให้ภาพนิ่ง (สำคัญสำหรับ iPad)
+      await new Promise(r => setTimeout(r, 500));
+
+      // 5. เลือก API ที่เหมาะสม
       if ((video as any).webkitSetPresentationMode) {
-        // เฉพาะทางสำหรับ iPad Safari
         (video as any).webkitSetPresentationMode('picture-in-picture');
       } else if (video.requestPictureInPicture) {
-        // มาตรฐานใหม่
         await video.requestPictureInPicture();
       } else {
-        throw new Error("iPad ของคุณไม่รองรับโหมดนี้ในเบราว์เซอร์นี้ กรุณาใช้ Safari");
+        throw new Error("iPad ของคุณไม่รองรับโหมดลอยตัวในเบราว์เซอร์นี้");
       }
       
       setIsPiPActive(true);
     } catch (e: any) {
-      console.error("PiP Toggle Error:", e);
-      alert("ไม่สามารถเปิดโหมดลอยได้: " + (e.message || "กรุณาใช้ Safari และตรวจสอบว่าไม่ได้เปิดโหมดประหยัดพลังงาน"));
+      console.error("PiP Activation Failed:", e);
+      alert("ไม่สามารถแสดงภาพในหน้าต่างลอยได้: " + (e.message || "กรุณาใช้ Safari และปิดโหมดประหยัดพลังงาน"));
     }
   };
 
@@ -232,11 +233,9 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
-      {/* ซ่อน Video หลัก แต่ยังให้ทำงานในเบื้องหลัง */}
       <video ref={videoRef} style={{ display: 'none' }} muted playsInline />
       
-      {/* สำคัญ: Canvas ต้องไม่ display: none ไม่งั้น iPad จะหยุดวาดภาพ */}
-      {/* ใช้การย้ายออกนอกหน้าจอแทน */}
+      {/* ย้าย Canvas ออกนอกหน้าจอแต่ห้าม display: none */}
       <canvas 
         ref={canvasRef} 
         width={512} 
@@ -245,41 +244,41 @@ const App: React.FC = () => {
           position: 'fixed', 
           top: '-1000px', 
           left: '-1000px', 
+          opacity: 0.1,
           pointerEvents: 'none' 
         }} 
       />
       
-      {/* วิดีโอต้นทางสำหรับ PiP (ซ่อนแต่ให้เบราว์เซอร์มองเห็นว่ามีตัวตน) */}
+      {/* วิดีโอต้นทางสำหรับ PiP ต้องมีขนาดที่มองเห็นได้จริงเพื่อให้ระบบยอมรับ */}
       <video 
         ref={pipVideoRef} 
         style={{ 
           position: 'fixed', 
-          top: '0', 
-          left: '0', 
-          width: '1px', 
-          height: '1px', 
+          bottom: '10px', 
+          right: '10px', 
+          width: '320px', 
+          height: '240px', 
           pointerEvents: 'none',
-          opacity: 0.01 
+          opacity: 0.001,
+          zIndex: -1
         }}
         muted 
         playsInline 
       />
 
-      {/* UI ส่วนหัว */}
       <div className="absolute top-8 w-full text-center z-[10] px-6 pointer-events-none">
         <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
           iPad <span className="text-indigo-500 font-extrabold italic">Presenter</span>
         </h1>
         {isPiPActive && (
-          <div className="mt-4 animate-bounce">
-            <span className="px-6 py-2 bg-indigo-600 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl">
-              หน้าต่างลอยเปิดแล้ว - สลับแอปได้เลย!
+          <div className="mt-4">
+            <span className="px-6 py-2 bg-green-500 text-black rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl">
+              Streaming to Floating Window
             </span>
           </div>
         )}
       </div>
 
-      {/* แผงควบคุม */}
       <div className="absolute inset-x-0 top-24 z-[100] flex flex-col items-center pointer-events-none">
         {isUIVisible ? (
           <div className="pointer-events-auto w-full max-w-md px-4">
@@ -297,13 +296,10 @@ const App: React.FC = () => {
             {!cameraError && !isCameraLoading && (
               <button 
                 onClick={handlePiPToggle}
-                className={`flex items-center gap-3 px-10 py-5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-[0_0_40px_rgba(99,102,241,0.4)] transition-all active:scale-95 ${
+                className={`flex items-center gap-3 px-10 py-5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${
                   isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'
                 }`}
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                </svg>
                 {isPiPActive ? 'ปิดหน้าต่างลอย' : 'เปิดหน้าต่างลอย'}
               </button>
             )}
@@ -311,7 +307,6 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* พื้นที่แสดงผลพรีวิวในแอป */}
       <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none">
         <div className="pointer-events-auto">
           {!isCameraLoading && !cameraError && (
@@ -322,7 +317,7 @@ const App: React.FC = () => {
         {isCameraLoading && (
           <div className="glass p-16 rounded-[4rem] text-center space-y-6">
             <div className="w-14 h-14 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mx-auto" />
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">กำลังเปิดกล้อง...</p>
+            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">Starting...</p>
           </div>
         )}
 
@@ -336,14 +331,6 @@ const App: React.FC = () => {
           </div>
         )}
       </div>
-
-      {!isUIVisible && !isPiPActive && (
-        <div className="absolute bottom-12 w-full text-center pointer-events-none">
-          <p className="text-[10px] font-black text-white/10 uppercase tracking-[0.5em]">
-            Presenter Overlay Mode
-          </p>
-        </div>
-      )}
     </div>
   );
 };
