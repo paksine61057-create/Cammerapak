@@ -1,0 +1,8 @@
+{
+  "name": "Presenter Overlay & Recorder",
+  "description": "A high-end presentation tool with a draggable camera overlay, virtual backgrounds, and screen recording capabilities.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
