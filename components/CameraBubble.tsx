@@ -34,7 +34,7 @@ export const CameraBubble: React.FC<CameraBubbleProps> = ({
     const newX = e.clientX - dragOffset.x;
     const newY = e.clientY - dragOffset.y;
     
-    const padding = 10;
+    const padding = 20;
     const boundedX = Math.max(padding, Math.min(newX, window.innerWidth - config.size - padding));
     const boundedY = Math.max(padding, Math.min(newY, window.innerHeight - config.size - padding));
     
@@ -46,7 +46,6 @@ export const CameraBubble: React.FC<CameraBubbleProps> = ({
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   };
 
-  // Sync internal preview canvas with the processed master canvas
   useEffect(() => {
     const mainCanvas = canvasRef.current;
     const previewCanvas = previewCanvasRef.current;
@@ -56,7 +55,6 @@ export const CameraBubble: React.FC<CameraBubbleProps> = ({
     if (!ctx) return;
 
     let animationId: number;
-
     const sync = () => {
       ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
       ctx.drawImage(mainCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
@@ -81,19 +79,16 @@ export const CameraBubble: React.FC<CameraBubbleProps> = ({
         zIndex: 50,
         touchAction: 'none',
       }}
-      className={`absolute overflow-hidden shadow-[0_20px_80px_rgba(0,0,0,0.6)] transition-transform duration-75 border-[3px] border-white/20 active:border-blue-500 ${
-        config.shape === 'circle' ? 'rounded-full' : 'rounded-[2rem]'
+      className={`absolute overflow-hidden shadow-2xl transition-transform duration-75 border border-white/10 ${
+        config.shape === 'circle' ? 'rounded-full' : 'rounded-3xl'
       } ${isDragging ? 'scale-105' : 'scale-100'}`}
     >
       <canvas
         ref={previewCanvasRef}
-        width={400}
-        height={400}
-        className="w-full h-full object-cover pointer-events-none"
+        width={512}
+        height={512}
+        className="w-full h-full object-cover pointer-events-none bg-black"
       />
-      
-      {/* Decorative Overlay */}
-      <div className={`absolute inset-0 pointer-events-none border border-inset border-white/10 ${config.shape === 'circle' ? 'rounded-full' : 'rounded-[2rem]'}`} />
     </div>
   );
 };
