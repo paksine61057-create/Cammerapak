@@ -4,33 +4,27 @@ import { CameraBubble } from './components/CameraBubble';
 import { ControlPanel } from './components/ControlPanel';
 import { CameraConfig, Position } from './types';
 
-const STORAGE_KEY = 'presenter_camera_config';
+const STORAGE_KEY = 'presenter_camera_config_v6';
 
 const DEFAULT_CONFIG: CameraConfig = {
   shape: 'circle',
-  size: 240,
+  size: 280,
   mirrored: true,
-  backgroundUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=800',
+  backgroundUrl: 'https://images.unsplash.com/photo-1543589077-47d81606c1ad?auto=format&fit=crop&q=80&w=1200',
   blur: 0,
-  videoOpacity: 1.0, 
-  zoom: 1.2,
-  useChromaKey: false,
-  chromaKeyColor: { r: 255, g: 255, b: 255 },
-  threshold: 50,
+  videoOpacity: 1.0, // ปรับให้คนทึบ 100% เพื่อให้แยกจากพื้นหลังชัดเจน
+  zoom: 1.4,
+  useChromaKey: true,
+  chromaKeyColor: { r: 255, g: 255, b: 255 }, 
+  threshold: 45,
 };
 
 const App: React.FC = () => {
-  // Load initial config from localStorage or use default
   const [cameraConfig, setCameraConfig] = useState<CameraConfig>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        // Note: Blob URLs won't persist after refresh, so we check if it's a blob
-        if (parsed.backgroundUrl?.startsWith('blob:')) {
-          return { ...parsed, backgroundUrl: DEFAULT_CONFIG.backgroundUrl };
-        }
-        return parsed;
+        return JSON.parse(saved);
       } catch (e) {
         return DEFAULT_CONFIG;
       }
@@ -38,15 +32,9 @@ const App: React.FC = () => {
     return DEFAULT_CONFIG;
   });
   
-  // Save config when it changes
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cameraConfig));
-    configRef.current = cameraConfig;
-  }, [cameraConfig]);
-
   const configRef = useRef(cameraConfig);
   const [isUIVisible, setIsUIVisible] = useState(true);
-  const [pos, setPos] = useState<Position>({ x: 40, y: 150 });
+  const [pos, setPos] = useState<Position>({ x: 50, y: 150 });
   const [isPiPActive, setIsPiPActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCameraLoading, setIsCameraLoading] = useState(true);
@@ -56,7 +44,11 @@ const App: React.FC = () => {
   const processingCanvasRef = useRef<HTMLCanvasElement>(null);
   const pipVideoRef = useRef<HTMLVideoElement>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
-  const workerRef = useRef<Worker | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cameraConfig));
+    configRef.current = cameraConfig;
+  }, [cameraConfig]);
 
   useEffect(() => {
     const pc = document.createElement('canvas');
@@ -65,40 +57,18 @@ const App: React.FC = () => {
     processingCanvasRef.current = pc;
   }, []);
 
-  // Optimized Background Image Loader
   useEffect(() => {
     if (!cameraConfig.backgroundUrl) {
       bgImageRef.current = null;
       return;
     }
-
     const img = new Image();
-    // Use anonymous only for external http/https to avoid CORS issues with local blobs
-    if (cameraConfig.backgroundUrl.startsWith('http')) {
+    if (!cameraConfig.backgroundUrl.startsWith('data:')) {
       img.crossOrigin = "anonymous";
     }
-
-    const handleLoad = () => {
-      bgImageRef.current = img;
-    };
-
-    const handleError = () => {
-      console.error("Failed to load image:", cameraConfig.backgroundUrl);
-      // If custom upload fails, fallback to a system default
-      if (cameraConfig.backgroundUrl?.startsWith('blob:')) {
-        setCameraConfig(prev => ({ ...prev, backgroundUrl: DEFAULT_CONFIG.backgroundUrl }));
-      }
-      bgImageRef.current = null;
-    };
-
-    img.onload = handleLoad;
-    img.onerror = handleError;
+    img.onload = () => { bgImageRef.current = img; };
+    img.onerror = () => { bgImageRef.current = null; };
     img.src = cameraConfig.backgroundUrl;
-
-    return () => {
-      img.onload = null;
-      img.onerror = null;
-    };
   }, [cameraConfig.backgroundUrl]);
 
   const drawImageCover = (ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: number, h: number) => {
@@ -107,15 +77,11 @@ const App: React.FC = () => {
     const canvasRatio = w / h;
     let sx, sy, sw, sh;
     if (imgRatio > canvasRatio) {
-      sh = img.naturalHeight;
-      sw = img.naturalHeight * canvasRatio;
-      sx = (img.naturalWidth - sw) / 2;
-      sy = 0;
+      sh = img.naturalHeight; sw = img.naturalHeight * canvasRatio;
+      sx = (img.naturalWidth - sw) / 2; sy = 0;
     } else {
-      sw = img.naturalWidth;
-      sh = img.naturalWidth / canvasRatio;
-      sx = 0;
-      sy = (img.naturalHeight - sh) / 2;
+      sw = img.naturalWidth; sh = img.naturalWidth / canvasRatio;
+      sx = 0; sy = (img.naturalHeight - sh) / 2;
     }
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
   };
@@ -124,7 +90,6 @@ const App: React.FC = () => {
     let stream: MediaStream | null = null;
     const startCamera = async () => {
       setIsCameraLoading(true);
-      setCameraError(null);
       try {
         stream = await navigator.mediaDevices.getUserMedia({ 
           video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
@@ -132,12 +97,12 @@ const App: React.FC = () => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play().catch(e => console.error("Play Error", e));
+            videoRef.current?.play().catch(e => console.error(e));
             setIsCameraLoading(false);
           };
         }
       } catch (err: any) {
-        setCameraError("ไม่พบกล้องหรือยังไม่ได้อนุญาตสิทธิ์");
+        setCameraError("ไม่สามารถเข้าถึงกล้องได้");
         setIsCameraLoading(false);
       }
     };
@@ -158,50 +123,43 @@ const App: React.FC = () => {
     const cfg = configRef.current;
     const size = canvas.width;
     
+    // Reset Shadow for background
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    // 1. Draw Background Base
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, size, size);
 
     ctx.save();
+    // Create Bubble Clipping Mask
     if (cfg.shape === 'circle') { 
-      ctx.beginPath(); 
-      ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); 
-      ctx.clip(); 
+      ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, Math.PI*2); ctx.clip(); 
     } else {
       const radius = 60;
       ctx.beginPath();
-      ctx.moveTo(radius, 0);
-      ctx.lineTo(size - radius, 0);
-      ctx.quadraticCurveTo(size, 0, size, radius);
-      ctx.lineTo(size, size - radius);
-      ctx.quadraticCurveTo(size, size, size - radius, size);
-      ctx.lineTo(radius, size);
-      ctx.quadraticCurveTo(0, size, 0, size - radius);
-      ctx.lineTo(0, radius);
-      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.moveTo(radius, 0); ctx.lineTo(size - radius, 0); ctx.quadraticCurveTo(size, 0, size, radius);
+      ctx.lineTo(size, size - radius); ctx.quadraticCurveTo(size, size, size - radius, size);
+      ctx.lineTo(radius, size); ctx.quadraticCurveTo(0, size, 0, size - radius);
+      ctx.lineTo(0, radius); ctx.quadraticCurveTo(0, 0, radius, 0);
       ctx.closePath();
       ctx.clip();
     }
 
+    // 2. วาดภาพพื้นหลัง (เลเยอร์ล่างสุด)
+    ctx.globalAlpha = 1.0;
     if (bgImageRef.current) {
-      try {
-        drawImageCover(ctx, bgImageRef.current, size, size);
-      } catch (e) {
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(0, 0, size, size);
-      }
+      drawImageCover(ctx, bgImageRef.current, size, size);
     } else {
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = '#450a0a';
       ctx.fillRect(0, 0, size, size);
     }
 
+    // 3. วาดวิดีโอตัวคน (เลเยอร์บนสุด + เพิ่มเงาให้ดูแยกออกมา)
     if (video.readyState >= 2) {
       pCtx.clearRect(0, 0, procCanvas.width, procCanvas.height);
       pCtx.save();
-      
-      if (cfg.mirrored) { 
-        pCtx.translate(procCanvas.width, 0); 
-        pCtx.scale(-1, 1); 
-      }
+      if (cfg.mirrored) { pCtx.translate(procCanvas.width, 0); pCtx.scale(-1, 1); }
       
       const zoom = cfg.zoom;
       const sw = video.videoWidth / zoom;
@@ -218,45 +176,34 @@ const App: React.FC = () => {
         const threshold = cfg.threshold;
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i], g = data[i+1], b = data[i+2];
-          const diff = Math.sqrt((r-tr)**2 + (g-tg)**2 + (b-tb)**2);
-          if (diff < threshold) {
+          const dist = Math.sqrt((r-tr)**2 + (g-tg)**2 + (b-tb)**2);
+          if (dist < threshold) {
             data[i+3] = 0;
-          } else if (diff < threshold + 20) {
-            data[i+3] = ((diff - threshold) / 20) * 255;
+          } else if (dist < threshold + 15) {
+            data[i+3] = ((dist - threshold) / 15) * 255;
           }
         }
         pCtx.putImageData(imageData, 0, 0);
       }
       pCtx.restore();
 
-      if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
+      // เพิ่ม Drop Shadow ให้ตัวคนเพื่อให้ "แยก" ออกจากพื้นหลัง
+      ctx.save();
+      ctx.shadowBlur = 30;
+      ctx.shadowColor = 'rgba(0,0,0,0.7)';
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 10;
+      
       ctx.globalAlpha = cfg.videoOpacity;
       ctx.drawImage(procCanvas, 0, 0, size, size);
+      ctx.restore();
     }
-    
     ctx.restore();
   }, []);
 
   useEffect(() => {
-    const workerCode = `
-      let interval;
-      self.onmessage = function(e) {
-        if (e.data === 'start') {
-          interval = setInterval(() => self.postMessage('tick'), 1000/30);
-        } else if (e.data === 'stop') {
-          clearInterval(interval);
-        }
-      };
-    `;
-    const blob = new Blob([workerCode], { type: 'application/javascript' });
-    const worker = new Worker(URL.createObjectURL(blob));
-    worker.onmessage = () => renderFrame();
-    worker.postMessage('start');
-    workerRef.current = worker;
-    return () => {
-      worker.postMessage('stop');
-      worker.terminate();
-    };
+    const ticker = setInterval(renderFrame, 1000/30);
+    return () => clearInterval(ticker);
   }, [renderFrame]);
 
   const handlePiPToggle = async () => {
@@ -266,71 +213,31 @@ const App: React.FC = () => {
     const isCurrentlyPiP = document.pictureInPictureElement || (video as any).webkitPresentationMode === 'picture-in-picture';
     if (isCurrentlyPiP) {
       try {
-        if (document.exitPictureInPicture) {
-          await document.exitPictureInPicture();
-        } else if ((video as any).webkitSetPresentationMode) {
-          (video as any).webkitSetPresentationMode('inline');
-        }
+        if (document.exitPictureInPicture) await document.exitPictureInPicture();
+        else if ((video as any).webkitSetPresentationMode) (video as any).webkitSetPresentationMode('inline');
         setIsPiPActive(false);
-      } catch (e) { console.error("Exit PiP error", e); }
+      } catch (e) { console.error(e); }
       return;
     }
     try {
-      const stream = canvas.captureStream(30);
-      video.srcObject = stream;
+      video.srcObject = canvas.captureStream(30);
       await video.play();
-      await new Promise(resolve => {
-        const check = () => (video.readyState >= 2 ? resolve(null) : setTimeout(check, 100));
-        check();
-      });
-      await new Promise(r => setTimeout(r, 600));
-      if ((video as any).webkitSetPresentationMode) {
-        (video as any).webkitSetPresentationMode('picture-in-picture');
-      } else if (video.requestPictureInPicture) {
-        await video.requestPictureInPicture();
-      }
+      if ((video as any).webkitSetPresentationMode) (video as any).webkitSetPresentationMode('picture-in-picture');
+      else if (video.requestPictureInPicture) await video.requestPictureInPicture();
       setIsPiPActive(true);
-    } catch (e: any) {
-      alert("ไม่สามารถเปิดโหมดลอยได้: " + (e.message || "กรุณาใช้ Safari"));
-    }
+    } catch (e) { alert("เบราว์เซอร์ไม่รองรับโหมดลอย"); }
   };
-
-  useEffect(() => {
-    const video = pipVideoRef.current;
-    const handleExit = () => setIsPiPActive(false);
-    const handleEnter = () => setIsPiPActive(true);
-    video?.addEventListener('enterpictureinpicture', handleEnter);
-    video?.addEventListener('leavepictureinpicture', handleExit);
-    const handleWebkitChange = () => {
-      const mode = (video as any).webkitPresentationMode;
-      if (mode === 'picture-in-picture') setIsPiPActive(true);
-      if (mode === 'inline') setIsPiPActive(false);
-    };
-    video?.addEventListener('webkitpresentationmodechanged', handleWebkitChange);
-    return () => {
-      video?.removeEventListener('enterpictureinpicture', handleEnter);
-      video?.removeEventListener('leavepictureinpicture', handleExit);
-      video?.removeEventListener('webkitpresentationmodechanged', handleWebkitChange);
-    };
-  }, []);
 
   return (
     <div className="relative w-full h-full bg-[#020617] text-white overflow-hidden select-none font-sans">
       <video ref={videoRef} style={{ display: 'none' }} muted playsInline />
-      <canvas ref={canvasRef} width={512} height={512} style={{ position: 'fixed', top: '-1000px', left: '-1000px', opacity: 0.1, pointerEvents: 'none' }} />
-      <video ref={pipVideoRef} style={{ position: 'fixed', bottom: '10px', right: '10px', width: '320px', height: '240px', pointerEvents: 'none', opacity: 0.001, zIndex: -1 }} muted playsInline />
+      <canvas ref={canvasRef} width={512} height={512} className="fixed -top-[2000px] pointer-events-none" />
+      <video ref={pipVideoRef} style={{ position: 'fixed', opacity: 0, pointerEvents: 'none', zIndex: -1 }} muted playsInline />
 
-      <div className="absolute top-8 w-full text-center z-[10] px-6 pointer-events-none">
-        <h1 className="text-3xl font-black tracking-tighter text-white/90 drop-shadow-2xl">
-          iPad <span className="text-indigo-500 font-extrabold italic">Presenter</span>
+      <div className="absolute top-8 w-full text-center z-10 pointer-events-none">
+        <h1 className="text-4xl font-black tracking-tighter text-white/90 drop-shadow-2xl uppercase italic">
+          Presenter <span className="text-red-500">Pro</span>
         </h1>
-        {isPiPActive && (
-          <div className="mt-4 animate-pulse">
-            <span className="px-6 py-2 bg-green-500 text-black rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl">
-              Streaming Active
-            </span>
-          </div>
-        )}
       </div>
 
       <div className="absolute inset-x-0 top-24 z-[100] flex flex-col items-center pointer-events-none">
@@ -339,13 +246,13 @@ const App: React.FC = () => {
             <ControlPanel config={cameraConfig} onConfigChange={setCameraConfig} onHideUI={() => setIsUIVisible(false)} />
           </div>
         ) : (
-          <div className="flex gap-4 pointer-events-auto items-center p-6">
-            <button onClick={() => setIsUIVisible(true)} className="px-10 py-5 glass rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20 hover:bg-white/10 transition-all shadow-2xl">
-              ตั้งค่ากล้อง
+          <div className="flex gap-4 pointer-events-auto items-center p-6 animate-in slide-in-from-bottom-10 duration-500">
+            <button onClick={() => setIsUIVisible(true)} className="px-12 py-6 glass rounded-full text-xs font-black tracking-[0.2em] uppercase border border-white/20 hover:bg-white/10 transition-all shadow-[0_20px_50px_rgba(0,0,0,0.5)] active:scale-95">
+              เมนูตั้งค่าพื้นหลัง
             </button>
             {!cameraError && !isCameraLoading && (
-              <button onClick={handlePiPToggle} className={`flex items-center gap-3 px-10 py-5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl transition-all active:scale-95 ${isPiPActive ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white'}`}>
-                {isPiPActive ? 'ปิดหน้าต่างลอย' : 'เปิดหน้าต่างลอย'}
+              <button onClick={handlePiPToggle} className={`flex items-center gap-3 px-12 py-6 rounded-full font-black text-xs uppercase tracking-[0.2em] shadow-2xl transition-all active:scale-95 ${isPiPActive ? 'bg-red-800 text-white' : 'bg-red-600 text-white hover:bg-red-500'}`}>
+                {isPiPActive ? '⏹ ปิดโหมดลอย' : '📺 เปิดโหมดลอย'}
               </button>
             )}
           </div>
@@ -359,15 +266,9 @@ const App: React.FC = () => {
           )}
         </div>
         {isCameraLoading && (
-          <div className="glass p-16 rounded-[4rem] text-center space-y-6">
-            <div className="w-14 h-14 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mx-auto" />
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">กำลังโหลดข้อมูล...</p>
-          </div>
-        )}
-        {cameraError && (
-          <div className="glass p-12 rounded-[3.5rem] text-center space-y-8 max-w-xs border-red-500/20 shadow-2xl">
-            <p className="text-sm font-bold text-red-400">{cameraError}</p>
-            <button onClick={() => window.location.reload()} className="w-full py-5 bg-white text-black rounded-3xl font-black text-[10px] uppercase tracking-widest">ลองใหม่อีกครั้ง</button>
+          <div className="glass p-16 rounded-[4rem] text-center space-y-6 shadow-2xl">
+            <div className="w-16 h-16 border-[6px] border-white/5 border-t-red-500 rounded-full animate-spin mx-auto" />
+            <p className="text-xs font-black text-white/40 uppercase tracking-[0.4em]">กำลังเชื่อมต่อกล้อง...</p>
           </div>
         )}
       </div>
