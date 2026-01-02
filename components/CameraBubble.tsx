@@ -30,15 +30,9 @@ export const CameraBubble: React.FC<CameraBubbleProps> = ({
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return;
-    
     const newX = e.clientX - dragOffset.x;
     const newY = e.clientY - dragOffset.y;
-    
-    const padding = 20;
-    const boundedX = Math.max(padding, Math.min(newX, window.innerWidth - config.size - padding));
-    const boundedY = Math.max(padding, Math.min(newY, window.innerHeight - config.size - padding));
-    
-    onPositionChange({ x: boundedX, y: boundedY });
+    onPositionChange({ x: newX, y: newY });
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -60,7 +54,6 @@ export const CameraBubble: React.FC<CameraBubbleProps> = ({
       ctx.drawImage(mainCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
       animationId = requestAnimationFrame(sync);
     };
-
     sync();
     return () => cancelAnimationFrame(animationId);
   }, [canvasRef]);
@@ -71,23 +64,18 @@ export const CameraBubble: React.FC<CameraBubbleProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       style={{
-        left: `${position.x}px`,
-        top: `${position.y}px`,
         width: `${config.size}px`,
         height: `${config.size}px`,
         cursor: isDragging ? 'grabbing' : 'grab',
-        zIndex: 50,
         touchAction: 'none',
       }}
-      className={`absolute overflow-hidden shadow-2xl transition-transform duration-75 border border-white/10 ${
-        config.shape === 'circle' ? 'rounded-full' : 'rounded-3xl'
-      } ${isDragging ? 'scale-105' : 'scale-100'}`}
+      className={`relative overflow-hidden shadow-[0_40px_100px_rgba(0,0,0,0.6)] border-2 border-white/10 rounded-[2.5rem] transition-transform duration-200 ${isDragging ? 'scale-95 opacity-80' : 'scale-100'}`}
     >
       <canvas
         ref={previewCanvasRef}
         width={512}
         height={512}
-        className="w-full h-full object-cover pointer-events-none bg-black"
+        className="w-full h-full object-cover pointer-events-none bg-zinc-900"
       />
     </div>
   );
